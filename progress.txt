@@ -12,4 +12,40 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   from prd.json).
 - whisper-server sidecar needs the ggml/whisper DLLs beside the exe; they are bundle resources in
   tauri.conf.json and already copied into target/release for dev runs.
+- Overlay state names (Rust RecordingState -> data-state): Ready->idle, Recording->listening,
+  Transcribing->processing; 'done' pre-mounted for US-008. New pill states = add a .layer div in
+  overlay.html + a #mic[data-state=X] .state-X CSS rule; layers crossfade automatically.
+- data-tauri-drag-region only works if the element with the attribute is the mousedown target:
+  keep `pointer-events: none` on ALL layer children, and only the active layer has
+  pointer-events: auto.
+---
+
+## 2026-07-19 - US-001
+- Implemented the fixed-size overlay host: window is now a constant 440x160 transparent host
+  created in main.rs setup (bottom-center, pill bottom-anchored inside via CSS `bottom: 16px`).
+  Rewrote src/overlay.html: four pre-mounted state layers (idle 64x12 lozenge, listening pill
+  with 14 static waveform bar divs, processing pill with 3 staggered pulsing dots, done tick),
+  all toggled purely by `#mic[data-state=...]` CSS using opacity + transform, 150ms
+  ease-out-in/ease-in-out crossfade. recorder.rs update_overlay reduced to exactly one eval:
+  `document.getElementById('mic').dataset.state = '<state>'` - all set_size/set_position calls
+  removed (grep-verified zero matches in src-tauri/src).
+- Files changed: src/overlay.html (rewrite), src-tauri/src/recorder.rs (update_overlay),
+  src-tauri/src/main.rs (overlay creation consts/position), prd.json, progress.txt.
+- Checks: `npm run build` passed (tsc + vite, exit 0); `cargo check` in src-tauri passed
+  (exit 0, no warnings for the typr crate). Branch ralph/wispr-parity created from main
+  (did not exist yet). No browser tools available - visual crossfade needs manual verification
+  in a dev run.
+- **Learnings for future iterations:**
+  - The old update_overlay resized the OS window per state specifically so the transparent
+    remainder would not swallow clicks. With the fixed 440x160 host that protection is GONE:
+    a 440x160 bottom-center region now intercepts clicks until US-002 lands the
+    set_ignore_cursor_events(true) + WH_MOUSE_LL hit-test toggle. Do US-002 next (it is
+    priority 2 anyway) - do not ship a build to the user between these stories.
+  - The listening bars are intentionally static at scaleY(0.08) (honest flatline) until
+    US-003 wires real RMS; the bars and the .bar CSS class are already in place, US-003 only
+    needs the audio-level event + rAF loop.
+  - The 'done' state layer + tick SVG are pre-mounted but nothing triggers data-state=done
+    yet - that is US-008's 400ms relax logic.
+  - Pill hover expand is CSS :hover on .state-idle; it composes with the centering transform,
+    so any new transform on a layer must repeat `translate(-50%, -50%)` first.
 ---

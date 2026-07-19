@@ -194,9 +194,12 @@ fn main() {
         .setup(move |app| {
             // Create the overlay window: a Wispr-style status pill, bottom-center,
             // always on top. Draggable via data-tauri-drag-region in overlay.html.
-            // Idle width; update_overlay() in recorder.rs resizes per state.
-            const OVERLAY_W: f64 = 72.0;
-            const OVERLAY_H: f64 = 56.0;
+            // FIXED-SIZE transparent host (Wispr "Status" window pattern): the
+            // visible pill morphs entirely inside the webview via data-state
+            // CSS; the OS window is never resized or repositioned per state
+            // (per-state window resizing = flicker + WM churn).
+            const OVERLAY_W: f64 = 440.0;
+            const OVERLAY_H: f64 = 160.0;
             let monitor = app.primary_monitor().ok().flatten();
             let (x, y) = if let Some(m) = monitor {
                 let size = m.size();
@@ -205,10 +208,12 @@ fn main() {
                 let logical_h = size.height as f64 / scale;
                 (
                     (logical_w - OVERLAY_W) / 2.0,
-                    logical_h - OVERLAY_H - 72.0, // sit just above the taskbar
+                    // Pill is bottom-anchored inside the host; this puts it
+                    // just above the taskbar.
+                    logical_h - OVERLAY_H - 56.0,
                 )
             } else {
-                (700.0, 900.0)
+                (740.0, 864.0)
             };
 
             let overlay = WebviewWindowBuilder::new(

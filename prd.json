@@ -14,8 +14,8 @@
         "npm run build passes and cargo check (in src-tauri) passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Fixed 440x160 host; pill states idle/listening/processing/done pre-mounted in overlay.html, crossfaded via #mic[data-state] with opacity+transform only. update_overlay is a single dataset.state eval."
     },
     {
       "id": "US-002",
