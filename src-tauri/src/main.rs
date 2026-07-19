@@ -13,6 +13,13 @@ use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
 
+mod pill_hittest;
+
+/// Fixed-size transparent overlay host (Wispr "Status" window pattern),
+/// logical px. The OS window is never resized; the pill morphs inside it.
+const OVERLAY_W: f64 = 440.0;
+const OVERLAY_H: f64 = 160.0;
+
 struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
@@ -88,10 +95,15 @@ fn get_settings(state: State<AppState>) -> Settings {
 fn save_settings(
     app: tauri::AppHandle,
     state: State<AppState>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<(), String> {
     let (old_engine, old_model) = {
         let s = state.settings.lock().unwrap();
+        // The overlay position is owned by the drag handler (pill_hittest),
+        // not the settings UI; re-assert the live values so a stale frontend
+        // snapshot can't revert a dragged pill.
+        settings.overlay_x = s.overlay_x;
+        settings.overlay_y = s.overlay_y;
         (s.engine.clone(), s.whisper_model.clone())
     };
     settings.save(&state.app_dir)?;
@@ -172,6 +184,7 @@ fn main() {
     let app_dir = get_app_dir();
     let settings = Settings::load(&app_dir);
     let initial_hotkey = settings.hotkey.clone();
+    let saved_overlay_pos = (settings.overlay_x, settings.overlay_y);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -198,8 +211,6 @@ fn main() {
             // visible pill morphs entirely inside the webview via data-state
             // CSS; the OS window is never resized or repositioned per state
             // (per-state window resizing = flicker + WM churn).
-            const OVERLAY_W: f64 = 440.0;
-            const OVERLAY_H: f64 = 160.0;
             let monitor = app.primary_monitor().ok().flatten();
             let (x, y) = if let Some(m) = monitor {
                 let size = m.size();
@@ -234,7 +245,17 @@ fn main() {
             .build();
 
             match overlay {
-                Ok(_) => println!("[Typr] Overlay window created"),
+                Ok(overlay) => {
+                    println!("[Typr] Overlay window created");
+                    // Reapply the user's dragged pill position (clamped to
+                    // the work area) before the first paint.
+                    if let (Some(px), Some(py)) = saved_overlay_pos {
+                        pill_hittest::restore_position(app.handle(), &overlay, px, py);
+                    }
+                    // Click-through by default; the WH_MOUSE_LL hook flips
+                    // interactivity only while the cursor is over the pill.
+                    pill_hittest::install(app.handle(), &overlay);
+                }
                 Err(e) => eprintln!("[Typr] Failed to create overlay: {}", e),
             }
 
@@ -324,6 +345,7 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                pill_hittest::uninstall();
                 // Don't leave the whisper-server orphaned.
                 let state = app.state::<AppState>();
                 let child = state.whisper_server.lock().unwrap().take();

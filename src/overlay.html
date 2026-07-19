@@ -20,7 +20,10 @@
       }
 
       /* Pill root: bottom-center of the host. The empty headroom above is
-         animation/menu space and stays fully transparent. */
+         animation/menu space and stays fully transparent.
+         NOTE: the cursor hit rect in src-tauri/src/pill_hittest.rs (PILL_*
+         consts) must track this geometry — the window is click-through
+         except over that rect. */
       #mic {
         position: fixed;
         left: 0;

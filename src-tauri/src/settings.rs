@@ -13,6 +13,14 @@ pub struct Settings {
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
+    /// Overlay window top-left in physical px, persisted after the user
+    /// drags the pill (US-002). None = default bottom-center placement.
+    /// Owned by Rust (pill_hittest), not the settings UI — save_settings
+    /// re-asserts the live values over whatever the frontend sends.
+    #[serde(rename = "overlayX", default)]
+    pub overlay_x: Option<i32>,
+    #[serde(rename = "overlayY", default)]
+    pub overlay_y: Option<i32>,
 }
 
 impl Default for Settings {
@@ -24,6 +32,8 @@ impl Default for Settings {
             groq_api_key: String::new(),
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
+            overlay_x: None,
+            overlay_y: None,
         }
     }
 }
@@ -89,6 +99,44 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let settings = Settings::load(&dir);
         assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn test_load_pre_overlay_pos_config_gives_none() {
+        // Config written before US-002 has no overlayX/overlayY keys.
+        let dir = temp_dir().join("typr_test_no_overlay_pos");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config.json"),
+            r#"{"microphone":"default","engine":"local","whisperModel":"small","groqApiKey":"","recordingMode":"toggle","hotkey":"CmdOrCtrl+Shift+Space"}"#,
+        )
+        .unwrap();
+
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.overlay_x, None);
+        assert_eq!(settings.overlay_y, None);
+        assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_overlay_pos_roundtrip() {
+        let dir = temp_dir().join("typr_test_overlay_pos");
+        let _ = fs::remove_dir_all(&dir);
+
+        let mut settings = Settings::default();
+        settings.overlay_x = Some(-120);
+        settings.overlay_y = Some(980);
+
+        settings.save(&dir).unwrap();
+        let loaded = Settings::load(&dir);
+
+        assert_eq!(loaded.overlay_x, Some(-120));
+        assert_eq!(loaded.overlay_y, Some(980));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

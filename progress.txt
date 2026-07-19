@@ -18,6 +18,17 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
 - data-tauri-drag-region only works if the element with the attribute is the mousedown target:
   keep `pointer-events: none` on ALL layer children, and only the active layer has
   pointer-events: auto.
+- Settings fields owned by the RUST side (currently overlayX/overlayY) must be re-asserted in
+  save_settings: main.ts caches the whole Settings object at page load and sends that stale
+  snapshot on every save, which would silently revert Rust-side changes. Frontend-owned fields
+  round-trip fine (the JS object keeps unknown fields).
+- Win32 interop: add `windows = "0.61"` (same version tao/wry already pull; features
+  Win32_Foundation + Win32_UI_WindowsAndMessaging are already enabled by tao, so cargo check
+  stays fast). Bin-only modules (needing AppState) are declared with `mod x;` in main.rs, NOT
+  in lib.rs.
+- Overlay interactivity: window is click-through by default; pill_hittest.rs (WH_MOUSE_LL) flips
+  it over the pill rect. If you change #mic geometry in overlay.html, update the PILL_* consts
+  in pill_hittest.rs.
 ---
 
 ## 2026-07-19 - US-001
@@ -48,4 +59,47 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
     yet - that is US-008's 400ms relax logic.
   - Pill hover expand is CSS :hover on .state-idle; it composes with the centering transform,
     so any new transform on a layer must repeat `translate(-50%, -50%)` first.
+---
+
+## 2026-07-19 - US-002
+- Overlay is now click-through by default: pill_hittest::install() calls
+  set_ignore_cursor_events(true) right after the overlay is created, and installs a WH_MOUSE_LL
+  low-level mouse hook (windows crate 0.61, main thread, installed once in setup, uninstalled in
+  RunEvent::Exit). The hook reads a cached pill screen rect (4 AtomicI32s, physical px) on every
+  WM_MOUSEMOVE and flips ignore_cursor_events only when the inside/outside answer changes,
+  dispatched via run_on_main_thread. The rect cache is refreshed ONLY from window
+  Moved/ScaleFactorChanged events - no timers, no polling, no JS involvement.
+- Hit rect is 200x48 logical px centered on the pill (pill center = 36px above host bottom,
+  widest state 180px + grab margin), converted to physical using the overlay's scale factor.
+- Dragging: WM_LBUTTONDOWN inside the rect sets a DRAGGING flag (hook never flips to
+  click-through mid-drag - the window chases the cursor and the rect cache lags); WM_LBUTTONUP
+  ends the drag -> clamp_and_persist() clamps the window into Monitor::work_area() (tauri 2.10
+  has work_area + monitor_from_point, no extra Win32 needed) and persists overlayX/overlayY
+  (physical px, Option<i32>) into config.json off the main thread. Plain clicks take the same
+  path but skip both set_position and the disk write (no change detected).
+- Startup: pill_hittest::restore_position() reapplies the saved position clamped into the work
+  area of the monitor that now contains the point (monitor_from_point); if that monitor is gone,
+  the default bottom-center placement stands. save_settings() re-asserts the live overlay_x/y
+  over the incoming frontend settings (main.ts sends a stale page-load snapshot on every save).
+- Files changed: src-tauri/src/pill_hittest.rs (new, bin-crate module), src-tauri/src/main.rs,
+  src-tauri/src/settings.rs (+2 fields, +2 tests), src-tauri/Cargo.toml (windows dep),
+  src/overlay.html (geometry-sync comment only), prd.json, progress.txt.
+- Checks: npm run build exit 0; cargo check clean (1.7s - tao already enables the windows-crate
+  features); cargo test --lib settings: 6/6 pass incl. new pre-US-002-config compat and
+  overlay-pos roundtrip tests. NOT verified at runtime (no browser/UI tools this iteration):
+  actual hover hit-testing, dragging, and persistence need a manual dev run; US-011 covers the
+  end-to-end launch check.
+- **Learnings for future iterations:**
+  - The US-001 click-swallowing regression is now closed; the overlay never intercepts clicks
+    outside the 200x48 pill zone.
+  - WH_MOUSE_LL callbacks must stay cheap (slow hooks lag the system cursor): keep the hook side
+    to atomic reads and only dispatch on state flips. tauri's run_on_main_thread executes inline
+    when already on the main thread - fine here (SetWindowLongPtr-level work).
+  - If US-009's right-click menu needs the whole 440x160 host to be interactive while the menu
+    is open, add a "menu open" flag the hook respects (widen the hit rect to the host bounds)
+    rather than bypassing the hook.
+  - Hook install failure leaves the overlay click-through (pill unclickable but dictation
+    working) - deliberately NOT falling back to a fully-interactive 440x160 host.
+  - windows crate handle types wrap *mut c_void in 0.61 (HHOOK(ptr)); store as isize in an
+    AtomicIsize for statics.
 ---

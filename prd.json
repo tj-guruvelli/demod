@@ -28,8 +28,8 @@
         "npm run build passes and cargo check passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Click-through by default (set_ignore_cursor_events(true)); WH_MOUSE_LL hook in pill_hittest.rs flips interactivity over the 200x48 pill rect (cached atomics, updated on Moved/ScaleFactorChanged events). Drag-end (LBUTTONUP in the same hook) clamps to work area and persists overlayX/overlayY; restored + clamped on startup. save_settings re-asserts the Rust-owned position over stale frontend snapshots."
     },
     {
       "id": "US-003",
