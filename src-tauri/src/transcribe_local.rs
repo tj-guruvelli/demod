@@ -1,6 +1,53 @@
 use std::path::PathBuf;
+use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
+
+pub const SERVER_PORT: u16 = 8178;
+
+/// Threads for whisper inference: half the logical cores, clamped to 4..=8.
+pub fn whisper_threads() -> usize {
+    let logical = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8);
+    (logical / 2).clamp(4, 8)
+}
+
+/// Fast path: POST the WAV to the persistent whisper-server (model already
+/// loaded in memory). Falls back to the one-shot CLI sidecar if the server
+/// is not reachable.
+async fn transcribe_via_server(audio_path: &PathBuf) -> Result<String, String> {
+    let bytes = std::fs::read(audio_path).map_err(|e| format!("read wav: {}", e))?;
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| e.to_string())?;
+    let form = reqwest::multipart::Form::new()
+        .text("response_format", "json")
+        .part("file", part);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_millis(500))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/inference", SERVER_PORT))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("server unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("server error: {}", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    json["text"]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or("no 'text' in server response".to_string())
+}
 
 pub async fn transcribe_local(
     app: &AppHandle,
@@ -11,8 +58,19 @@ pub async fn transcribe_local(
         return Err("Whisper model not found. Please download a model first.".to_string());
     }
 
+    match transcribe_via_server(audio_path).await {
+        Ok(text) => {
+            println!("[Typr] Transcribed via warm whisper-server");
+            return Ok(text);
+        }
+        Err(e) => {
+            eprintln!("[Typr] whisper-server path failed ({}), falling back to CLI", e);
+        }
+    }
+
     println!("[Typr] Running whisper.cpp sidecar with model {:?}", model_path);
 
+    let threads = whisper_threads().to_string();
     let output = app
         .shell()
         .sidecar("whisper-cpp")
@@ -25,6 +83,8 @@ pub async fn transcribe_local(
             "--no-timestamps",
             "-l",
             "en",
+            "-t",
+            &threads,
         ])
         .output()
         .await

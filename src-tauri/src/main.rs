@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
 
 use typr_lib::audio;
 use typr_lib::downloader;
@@ -15,6 +17,60 @@ struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
     app_dir: PathBuf,
+    /// Persistent whisper-server sidecar (keeps the model loaded in RAM so
+    /// each dictation skips the ~1.5s model load). None when engine is cloud
+    /// or no model is downloaded yet.
+    whisper_server: Mutex<Option<CommandChild>>,
+}
+
+/// (Re)start the persistent whisper-server for the current settings.
+/// Kills any prior instance first. No-op (server stays down) for cloud
+/// engine or when the model file is missing — transcribe_local falls back
+/// to the one-shot CLI in that case anyway.
+fn respawn_whisper_server(app: &tauri::AppHandle, state: &AppState) {
+    if let Some(old) = state.whisper_server.lock().unwrap().take() {
+        let _ = old.kill();
+    }
+
+    let settings = state.settings.lock().unwrap().clone();
+    if settings.engine != "local" {
+        println!("[Typr] Engine is cloud — whisper-server not started");
+        return;
+    }
+    let model_path = state
+        .app_dir
+        .join(transcribe_local::model_filename(&settings.whisper_model));
+    if !model_path.exists() {
+        println!("[Typr] Model not downloaded — whisper-server not started");
+        return;
+    }
+
+    let threads = transcribe_local::whisper_threads().to_string();
+    let port = transcribe_local::SERVER_PORT.to_string();
+    match app.shell().sidecar("whisper-server") {
+        Ok(cmd) => {
+            match cmd
+                .args([
+                    "-m",
+                    model_path.to_str().unwrap(),
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    &port,
+                    "-t",
+                    &threads,
+                ])
+                .spawn()
+            {
+                Ok((_rx, child)) => {
+                    println!("[Typr] whisper-server started (pid {})", child.pid());
+                    *state.whisper_server.lock().unwrap() = Some(child);
+                }
+                Err(e) => eprintln!("[Typr] Failed to spawn whisper-server: {}", e),
+            }
+        }
+        Err(e) => eprintln!("[Typr] whisper-server sidecar not found: {}", e),
+    }
 }
 
 fn get_app_dir() -> PathBuf {
@@ -29,9 +85,21 @@ fn get_settings(state: State<AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), String> {
+fn save_settings(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    settings: Settings,
+) -> Result<(), String> {
+    let (old_engine, old_model) = {
+        let s = state.settings.lock().unwrap();
+        (s.engine.clone(), s.whisper_model.clone())
+    };
     settings.save(&state.app_dir)?;
+    let engine_changed = old_engine != settings.engine || old_model != settings.whisper_model;
     *state.settings.lock().unwrap() = settings;
+    if engine_changed {
+        respawn_whisper_server(&app, state.inner());
+    }
     Ok(())
 }
 
@@ -60,7 +128,10 @@ async fn download_model(
     let url = transcribe_local::model_download_url(&model_size);
     let model_file = transcribe_local::model_filename(&model_size);
     let dest = state.app_dir.join(&model_file);
-    downloader::download_model(app, &url, &dest).await
+    downloader::download_model(app.clone(), &url, &dest).await?;
+    // Model just became available — warm up the persistent server for it.
+    respawn_whisper_server(&app, state.inner());
+    Ok(())
 }
 
 #[tauri::command]
@@ -109,6 +180,7 @@ fn main() {
             recorder: Recorder::new(),
             settings: Mutex::new(settings),
             app_dir,
+            whisper_server: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -120,15 +192,23 @@ fn main() {
             toggle_recording,
         ])
         .setup(move |app| {
-            // Create the overlay window (small mic icon, top-right, always on top)
+            // Create the overlay window: a Wispr-style status pill, bottom-center,
+            // always on top. Draggable via data-tauri-drag-region in overlay.html.
+            // Idle width; update_overlay() in recorder.rs resizes per state.
+            const OVERLAY_W: f64 = 72.0;
+            const OVERLAY_H: f64 = 56.0;
             let monitor = app.primary_monitor().ok().flatten();
             let (x, y) = if let Some(m) = monitor {
                 let size = m.size();
                 let scale = m.scale_factor();
                 let logical_w = size.width as f64 / scale;
-                ((logical_w - 60.0) as i32, 10_i32)
+                let logical_h = size.height as f64 / scale;
+                (
+                    (logical_w - OVERLAY_W) / 2.0,
+                    logical_h - OVERLAY_H - 72.0, // sit just above the taskbar
+                )
             } else {
-                (1380, 10)
+                (700.0, 900.0)
             };
 
             let overlay = WebviewWindowBuilder::new(
@@ -137,8 +217,8 @@ fn main() {
                 WebviewUrl::App("src/overlay.html".into()),
             )
             .title("")
-            .inner_size(50.0, 50.0)
-            .position(x as f64, y as f64)
+            .inner_size(OVERLAY_W, OVERLAY_H)
+            .position(x, y)
             .resizable(false)
             .decorations(false)
             .transparent(true)
@@ -151,6 +231,14 @@ fn main() {
             match overlay {
                 Ok(_) => println!("[Typr] Overlay window created"),
                 Err(e) => eprintln!("[Typr] Failed to create overlay: {}", e),
+            }
+
+            // Warm up the persistent whisper-server so dictation is fast from
+            // the first utterance.
+            {
+                let handle = app.handle();
+                let state = handle.state::<AppState>();
+                respawn_whisper_server(handle, state.inner());
             }
 
             let handle = app.handle().clone();
@@ -227,6 +315,16 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                // Don't leave the whisper-server orphaned.
+                let state = app.state::<AppState>();
+                let child = state.whisper_server.lock().unwrap().take();
+                if let Some(child) = child {
+                    let _ = child.kill();
+                }
+            }
+        });
 }

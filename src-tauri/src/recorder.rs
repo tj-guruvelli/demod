@@ -18,11 +18,23 @@ pub enum RecordingState {
 
 fn update_overlay(app: &AppHandle, state: &RecordingState) {
     if let Some(overlay) = app.get_webview_window("overlay") {
-        let class = match state {
-            RecordingState::Ready => "mic",
-            RecordingState::Recording => "mic recording",
-            RecordingState::Transcribing => "mic transcribing",
+        let (class, width) = match state {
+            RecordingState::Ready => ("mic", 72.0),
+            RecordingState::Recording => ("mic recording", 320.0),
+            RecordingState::Transcribing => ("mic transcribing", 200.0),
         };
+        // Fit the window to the pill so the transparent remainder never
+        // swallows clicks, and keep it centered on wherever it was dragged.
+        let scale = overlay.scale_factor().unwrap_or(1.0);
+        if let (Ok(pos), Ok(size)) = (overlay.outer_position(), overlay.outer_size()) {
+            let old_w = size.width as f64 / scale;
+            let x = pos.x as f64 / scale + (old_w - width) / 2.0;
+            let y = pos.y as f64 / scale;
+            let _ = overlay.set_size(tauri::LogicalSize::new(width, 56.0));
+            let _ = overlay.set_position(tauri::LogicalPosition::new(x, y));
+        } else {
+            let _ = overlay.set_size(tauri::LogicalSize::new(width, 56.0));
+        }
         let js = format!("document.getElementById('mic').className = '{}';", class);
         let _ = overlay.eval(&js);
     }

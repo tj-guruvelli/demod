@@ -31,7 +31,21 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/whisper-cpp"],
+    "externalBin": ["binaries/whisper-cpp", "binaries/whisper-server"],
+    "resources": {
+      "binaries/whisper-dist/Release/ggml.dll": "ggml.dll",
+      "binaries/whisper-dist/Release/ggml-base.dll": "ggml-base.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-alderlake.dll": "ggml-cpu-alderlake.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-cannonlake.dll": "ggml-cpu-cannonlake.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-cascadelake.dll": "ggml-cpu-cascadelake.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-haswell.dll": "ggml-cpu-haswell.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-icelake.dll": "ggml-cpu-icelake.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-sandybridge.dll": "ggml-cpu-sandybridge.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-skylakex.dll": "ggml-cpu-skylakex.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-sse42.dll": "ggml-cpu-sse42.dll",
+      "binaries/whisper-dist/Release/ggml-cpu-x64.dll": "ggml-cpu-x64.dll",
+      "binaries/whisper-dist/Release/whisper.dll": "whisper.dll"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

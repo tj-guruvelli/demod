@@ -1,0 +1,15 @@
+# Ralph Progress Log
+Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
+---
+
+## Codebase Patterns
+- Build gates: `npm run build` (tsc + vite) at repo root, `cargo check` inside src-tauri/.
+- NEVER remove src-tauri/.cargo/config.toml, lib-patch/, or sdk-patch/ - they patch a damaged
+  VS/Windows SDK install (AV-quarantined files). Full `npm run tauri build` only in the final story.
+- Overlay state flows Rust -> webview via overlay.eval in recorder.rs update_overlay; the webview
+  is a pure renderer keyed off data-state. Animations: transform/opacity only. No polling loops.
+- The spec for all UX stories is docs/RESEARCH-wispr-superwhisper.md (section numbers referenced
+  from prd.json).
+- whisper-server sidecar needs the ggml/whisper DLLs beside the exe; they are bundle resources in
+  tauri.conf.json and already copied into target/release for dev runs.
+---

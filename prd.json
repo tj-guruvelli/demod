@@ -1,0 +1,157 @@
+{
+  "project": "Typr",
+  "branchName": "ralph/wispr-parity",
+  "description": "Make Typr (Tauri v2 dictation app, repo root = this directory, C:/Users/guruv/tools/typr) match Wispr Flow / SuperWhisper UX quality. THE SPEC IS docs/RESEARCH-wispr-superwhisper.md - read it before every story; section numbers below refer to it. Architecture rules that apply to EVERY story: overlay animations are transform/opacity ONLY (GPU compositable, no width/height/layout animation), no polling loops anywhere (event-driven: global-shortcut events, Rust-emitted events, WinEventHook; a single rAF loop may run ONLY while the overlay is in the listening state), all state flows Rust -> overlay via the existing eval/emit path, the webview is a pure renderer. DO NOT remove or weaken src-tauri/.cargo/config.toml or the lib-patch/ and sdk-patch/ folders - they work around a damaged VS/SDK install; without them the build breaks. Quality gate for every story: 'npm run build' (tsc + vite) passes AND 'cargo check' inside src-tauri passes. Do not run 'npm run tauri build' except in the final story (it is slow). The app currently works end to end: settings window renders, whisper-server sidecar starts, hotkey CmdOrCtrl+Shift+Space records and pastes.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fixed-size overlay host window with internal data-state pill morphing",
+      "description": "As a user, I want the pill to morph between states without any window flicker. Per research section 1 and 7.1: make the overlay a FIXED 440x160 transparent host window (bottom-center) and remove all per-state OS window resizing from recorder.rs update_overlay; instead the pill morphs entirely inside the webview driven by a data-state attribute on the pill root. Pre-mount ALL states in overlay.html (idle lozenge ~64x12px, listening layout, processing layout, done tick) and crossfade with opacity + translate/scale only, 120-180ms, per section 7.2. update_overlay evals exactly one thing: document.getElementById('mic').dataset.state = '<state>'.",
+      "acceptanceCriteria": [
+        "src-tauri/src/main.rs creates the overlay at 440x160 and never resizes it; recorder.rs contains no set_size/set_position calls in update_overlay",
+        "src/overlay.html has all states pre-mounted in the DOM, visibility toggled purely by CSS [data-state] rules using only opacity and transform",
+        "Idle state renders as a small dark lozenge (~64x12), not the old 40px mic circle",
+        "npm run build passes and cargo check (in src-tauri) passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Default click-through overlay with Rust cursor hit-test toggling",
+      "description": "As a user, I want the big transparent host window to never block my clicks, while the pill itself stays hoverable and draggable. Per research section 1 (hover row): set set_ignore_cursor_events(true) by default; install a WH_MOUSE_LL low-level mouse hook in Rust (windows crate) that computes whether the cursor is inside the pill's screen rect (pill rect = known CSS position within the fixed host window + window outer_position) and flips ignore_cursor_events off when inside, on when outside. Keep data-tauri-drag-region dragging working when interactive; after a drag ends, clamp the window into the monitor work area and persist {x,y} into the existing Settings, restoring on startup.",
+      "acceptanceCriteria": [
+        "Overlay window is click-through by default and interactive only when the cursor is over the pill rect (hook-driven, no JS polling)",
+        "Dragging the pill still works, and the saved position is written to the settings JSON and reapplied on next launch, clamped to the work area",
+        "The mouse hook is installed once at setup and uninstalled on exit; no timer or polling loop is introduced",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Live honest waveform driven by real mic RMS at 30Hz",
+      "description": "As a user, I want to see real waveform bars while I speak so I trust it is hearing me. Per research sections 1 (listening row) and 7.3: in the cpal capture callback in audio.rs, compute RMS per ~33ms chunk and emit a throttled 'audio-level' event (single float) at most 30Hz to the overlay. overlay.html renders 14 pre-created bar divs; a single rAF loop, running ONLY while data-state=listening, maps the latest level to per-bar transform: scaleY() values (center bars taller, randomized per-bar weighting set once at load, not per frame). If level stays below a silence threshold for 600ms, ease all bars to scaleY(0.08) - the honest flatline.",
+      "acceptanceCriteria": [
+        "audio.rs emits 'audio-level' events at a throttled rate (max ~30/s) only while recording",
+        "overlay.html animates bars with transform: scaleY only, from a single rAF loop that starts on entering listening state and stops on leaving it",
+        "Silence for 600ms visibly flattens the bars (threshold logic present in overlay JS)",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Instant keydown feedback: state + ping before any heavy work",
+      "description": "As a user, I want the pill to react the instant I press the hotkey. Per research section 2 (bottom note) and 7.4: on ShortcutState::Pressed the handler must, in order and before any other work: (1) set overlay state to listening, (2) play a short pre-loaded start ping (use rodio or windows PlaySound with a bundled small wav in src-tauri/sounds/, decoded/loaded once at startup), (3) start capture. Add a stop ping on finalize. Add an 'Interaction sounds' boolean to Settings (default true) respected by both pings. No blocking I/O (file reads, device enumeration) may happen on the hotkey path.",
+      "acceptanceCriteria": [
+        "Overlay state change and ping dispatch occur before capture start in the Pressed handler, with the sound assets loaded at app setup, not on the hotkey path",
+        "Settings gains interaction_sounds (default true) and both pings respect it",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "One key, three gestures: tap toggles, hold is push-to-talk",
+      "description": "As a user, I want Wispr's gesture model on a single hotkey. Per research section 2: keydown always starts capture immediately. If keyup arrives under 300ms, treat as a tap: stay recording (hands-free). If held past 300ms, keyup stops and transcribes (push-to-talk). A second tap while hands-free recording stops and transcribes. Replace the current recording_mode toggle/push-to-talk setting semantics with this unified model (keep the setting as an override: 'auto' default plus the two legacy explicit modes).",
+      "acceptanceCriteria": [
+        "Hotkey handler in main.rs implements tap-vs-hold discrimination with a 300ms threshold and second-tap stop, with no sleep/blocking on the event thread",
+        "Settings recording_mode supports 'auto' (new default), 'toggle', 'push-to-talk'; existing saved settings still load",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Esc cancel with 30-second discard guard",
+      "description": "As a user, I want Esc to cancel a dictation, but not to lose a long one by accident. Per research sections 1 (cancel guard) and 2: register Esc as a global shortcut ONLY while recording (register on state->Recording, unregister on leaving). Esc under 30s of recording cancels instantly (discard audio, state->idle). Over 30s, first Esc puts the pill in a 'confirm-discard' state (pre-mounted layout: 'Discard? press Esc again'); second Esc within 3s discards, otherwise recording continues.",
+      "acceptanceCriteria": [
+        "Esc is not globally registered when idle (verify register/unregister calls are tied to recording state transitions)",
+        "Recording duration is tracked in Rust; the 30s guard and 3s confirm window are implemented with tokio sleeps/timestamps, no polling",
+        "overlay.html has the pre-mounted confirm-discard state following the same data-state crossfade pattern",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Clipboard-respecting paste with fallback and paste-last shortcut",
+      "description": "As a user, I want dictation to paste without destroying my clipboard, and a rescue path when paste fails. Per research section 3: in paste.rs save the current clipboard text, write the transcript, synthesize Ctrl+V, wait briefly, restore the saved clipboard; write the transient transcript with the ExcludeClipboardContentFromMonitorProcessing and CF_CLIPBOARD_VIEWER_IGNORE formats so clipboard managers skip it. If paste fails, leave the transcript on the clipboard, set overlay state 'paste-fallback' (pre-mounted pill state with a Paste hint) until next state change. Register global shortcut Shift+Alt+Z to re-insert the last transcript (store last transcript in AppState).",
+      "acceptanceCriteria": [
+        "paste.rs implements save -> write(with exclusion formats) -> Ctrl+V -> restore, and restores only on success per Wispr's documented behavior",
+        "paste-fallback state exists in overlay.html and is triggered on paste failure",
+        "Shift+Alt+Z re-pastes the last transcript; last transcript stored in AppState",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Processing budget UX: late processing state, done tick, status dot",
+      "description": "As a user, I want short dictations to feel instant. Per research sections 1 and 7.5: after capture stops, only switch the pill to 'processing' if transcription has not completed within 300ms (Rust-side tokio timer; if the result lands first, skip processing state entirely). On success show the 'done' tick state for ~400ms then relax to idle. Add SuperWhisper's status dot to the pill corner (8px, opacity-crossfaded colors): yellow while whisper-server is starting/model loading, blue during processing, green on done, driven by existing Rust state.",
+      "acceptanceCriteria": [
+        "Processing state is skipped when transcription completes under 300ms (timer logic in Rust, not JS)",
+        "done state auto-relaxes to idle after ~400ms; status dot colors driven by events, changed via CSS variables and opacity only",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Pill right-click quick menu",
+      "description": "As a user, I want quick actions on the pill. Per research section 1 (click actions): contextmenu on the pill opens an in-webview menu growing upward from the pill (transform-origin bottom center, scale 0.95->1 + opacity, 120ms) with items: Hide for 1 hour, Paste last transcript, Settings, Quit. Hide-for-1-hour hides the overlay window and un-hides via a single Rust tokio sleep task (hotkey keeps working while hidden). Settings item focuses/shows the main window. Quit exits the app cleanly (killing whisper-server as the existing exit handler does). Menu closes on outside click, Esc, or item activation. The 440x160 host gives the menu room; menu must stay within the host window bounds.",
+      "acceptanceCriteria": [
+        "Right-clicking the pill opens the menu with the four items, animated with transform/opacity only, fully inside the host window",
+        "Hide for 1 hour hides the overlay, dictation still works while hidden, and it reappears after the timer without any polling",
+        "Settings shows and focuses the main window; Quit fully exits including the whisper-server child",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Settings truthfulness: real hotkey display, overlay and sound settings",
+      "description": "As a user, I want the settings window to show reality. index.html currently hardcodes the hotkey kbd as 'Cmd+Shift+D' while the real default is CmdOrCtrl+Shift+Space. Make main.ts render the actual saved hotkey (formatted for Windows: Ctrl+Shift+Space) from get_settings, and add to the Recording section: Interaction sounds toggle (from US-004) and Show overlay toggle (hides/shows the pill window, persisted as overlay_visible in Settings, hotkey unaffected). Wire both through get_settings/save_settings and apply on startup.",
+      "acceptanceCriteria": [
+        "The hotkey shown in the settings UI comes from the loaded settings, not a hardcoded string",
+        "Interaction sounds and Show overlay toggles persist through save_settings, survive restart, and take effect immediately",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Final integration build and standalone verification",
+      "description": "As a release gate, prove the whole thing ships. Run the full 'npm run tauri build' (slow, allowed here). Then launch src-tauri/target/release/typr.exe with Start-Process, wait 6s, and verify: typr.exe process alive, whisper-server process alive (a model is already downloaded on this machine), and no 'System Error' dialog processes. Enumerate top-level windows (PowerShell + user32 via Add-Type) and confirm both the settings window (title Typr) and the 440x160 overlay window exist. Take a full-screen screenshot to a file and inspect it for the settings window. Kill the launched processes afterward. Record every verification result honestly in progress.txt - if something cannot be verified, say so rather than claiming it.",
+      "acceptanceCriteria": [
+        "npm run tauri build completes with exit code 0 and produces the NSIS installer under src-tauri/target/release/bundle/nsis/",
+        "Launched exe: typr and whisper-server processes both confirmed running, overlay + settings windows both found via window enumeration",
+        "Screenshot captured to a file and its findings recorded in progress.txt",
+        "All earlier stories' passes flags are true"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

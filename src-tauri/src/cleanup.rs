@@ -1,6 +1,31 @@
+/// Remove whisper non-speech annotations like [BLANK_AUDIO], [MUSIC], (laughs).
+/// Whisper emits these for silence/noise; they are never dictated content.
+fn strip_annotations(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth_sq = 0usize;
+    let mut depth_par = 0usize;
+    for ch in text.chars() {
+        match ch {
+            '[' => depth_sq += 1,
+            ']' => depth_sq = depth_sq.saturating_sub(1),
+            '(' => depth_par += 1,
+            ')' => depth_par = depth_par.saturating_sub(1),
+            _ => {
+                if depth_sq == 0 && depth_par == 0 {
+                    out.push(ch);
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn cleanup_text(text: &str) -> String {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
+    let stripped = strip_annotations(text);
+    // Drop stray punctuation left behind by removed annotations
+    // (e.g. "[BLANK_AUDIO]." -> "."), then trim.
+    let trimmed = stripped.trim();
+    if trimmed.chars().all(|c| !c.is_alphanumeric()) {
         return String::new();
     }
 
@@ -91,5 +116,19 @@ mod tests {
     #[test]
     fn test_already_clean() {
         assert_eq!(cleanup_text("Hello world."), "Hello world.");
+    }
+
+    #[test]
+    fn test_strip_blank_audio() {
+        assert_eq!(cleanup_text("[BLANK_AUDIO]"), "");
+        assert_eq!(cleanup_text("[BLANK_AUDIO]."), "");
+        assert_eq!(cleanup_text("[BLANK_AUDIO].[BLANK_AUDIO]."), "");
+    }
+
+    #[test]
+    fn test_strip_annotations_inside_speech() {
+        assert_eq!(cleanup_text("hello [MUSIC] world"), "Hello world.");
+        assert_eq!(cleanup_text("(laughs) hello world"), "Hello world.");
+        assert_eq!(cleanup_text("[BLANK_AUDIO] hey, what's up?"), "Hey, what's up?");
     }
 }

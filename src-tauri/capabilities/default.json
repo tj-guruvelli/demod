@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities",
-  "windows": ["main"],
+  "windows": ["main", "overlay"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -11,6 +11,11 @@
       "allow": [
         {
           "name": "binaries/whisper-cpp",
+          "sidecar": true,
+          "args": true
+        },
+        {
+          "name": "binaries/whisper-server",
           "sidecar": true,
           "args": true
         }
