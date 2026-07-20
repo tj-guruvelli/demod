@@ -11,6 +11,10 @@ interface Settings {
   hotkey: string;
   interactionSounds?: boolean;
   overlayVisible?: boolean;
+  // Already deserialized server-side (pill_hittest.rs) — read-only display only,
+  // never written back from the frontend. See Overlay → Dock position.
+  overlayX?: number | null;
+  overlayY?: number | null;
 }
 
 interface MicDevice {
@@ -32,8 +36,7 @@ const engineLocal = document.getElementById("engine-local")!;
 const engineCloud = document.getElementById("engine-cloud")!;
 const localSettings = document.getElementById("local-settings")!;
 const cloudSettings = document.getElementById("cloud-settings")!;
-const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
-const downloadBtn = document.getElementById("download-btn")!;
+const modelList = document.getElementById("model-list")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
@@ -41,23 +44,85 @@ const modeAuto = document.getElementById("mode-auto")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
-const soundsOn = document.getElementById("sounds-on")!;
-const soundsOff = document.getElementById("sounds-off")!;
-const overlayOn = document.getElementById("overlay-on")!;
-const overlayOff = document.getElementById("overlay-off")!;
+const soundsSwitch = document.getElementById("sounds-switch")!;
+const overlaySwitch = document.getElementById("overlay-switch")!;
+const dockPositionText = document.getElementById("dock-position-text")!;
+const footerSidecar = document.getElementById("footer-sidecar")!;
+const footerModel = document.getElementById("footer-model")!;
+const footerHotkey = document.getElementById("footer-hotkey")!;
 
-// Section navigation
-const navItems = document.querySelectorAll(".nav-item");
-const sections = document.querySelectorAll(".content-section");
+// Section navigation — role=tablist/tab/tabpanel pattern (chosen over plain
+// focusable buttons because the sidebar genuinely IS a section switcher with
+// exactly one visible panel at a time — the ARIA tab pattern maps 1:1 onto
+// that model). 150ms opacity/transform crossfade (matches overlay.html's own
+// ease-in/ease-out grammar) instead of an instant display swap.
+const navItems = Array.from(document.querySelectorAll<HTMLElement>(".nav-item"));
+
+function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = {}) {
+  const target = item.getAttribute("data-section");
+  const current = document.querySelector(".content-section.active") as HTMLElement | null;
+  const next = document.getElementById(`section-${target}`) as HTMLElement | null;
+  if (!next || next === current) {
+    if (focus) item.focus();
+    return;
+  }
+
+  navItems.forEach((n) => {
+    n.classList.remove("active");
+    n.setAttribute("aria-selected", "false");
+    n.tabIndex = -1;
+  });
+  item.classList.add("active");
+  item.setAttribute("aria-selected", "true");
+  item.tabIndex = 0;
+  if (focus) item.focus();
+
+  if (current) {
+    current.classList.add("leaving");
+    current.classList.remove("active");
+    current.addEventListener(
+      "transitionend",
+      () => {
+        current.classList.remove("leaving");
+        current.style.display = "none";
+      },
+      { once: true }
+    );
+  }
+  next.style.display = "block";
+  // rAF so the browser commits `display:block` before the class flips —
+  // otherwise the opacity/transform transition has no paint to animate from.
+  requestAnimationFrame(() => next.classList.add("active"));
+}
 
 navItems.forEach((item) => {
-  item.addEventListener("click", () => {
-    const target = item.getAttribute("data-section");
-    navItems.forEach((n) => n.classList.remove("active"));
-    sections.forEach((s) => s.classList.remove("active"));
-    item.classList.add("active");
-    document.getElementById(`section-${target}`)?.classList.add("active");
-  });
+  item.addEventListener("click", () => activateTab(item, { focus: false }));
+});
+
+// Roving tabindex arrow-key navigation — required for the tab pattern to be
+// keyboard-usable at all: Up/Down (and Left/Right) move between sections,
+// Home/End jump to the first/last. Only the active tab is in the Tab order;
+// arrow keys move both focus and selection between the others.
+document.getElementById("sidebar-nav")!.addEventListener("keydown", (e) => {
+  const key = (e as KeyboardEvent).key;
+  const currentIndex = navItems.findIndex((n) => n === document.activeElement);
+  if (currentIndex === -1) return;
+
+  let nextIndex: number | null = null;
+  if (key === "ArrowDown" || key === "ArrowRight") {
+    nextIndex = (currentIndex + 1) % navItems.length;
+  } else if (key === "ArrowUp" || key === "ArrowLeft") {
+    nextIndex = (currentIndex - 1 + navItems.length) % navItems.length;
+  } else if (key === "Home") {
+    nextIndex = 0;
+  } else if (key === "End") {
+    nextIndex = navItems.length - 1;
+  }
+
+  if (nextIndex !== null) {
+    e.preventDefault();
+    activateTab(navItems[nextIndex]);
+  }
 });
 
 // Window drag — titlebar and sidebar empty space
@@ -76,6 +141,17 @@ sidebar.addEventListener("mousedown", (e) => {
 });
 
 let currentSettings: Settings;
+
+// Static catalog matching exactly the two sizes settings.rs / download_model
+// already support (US-014/015 §4.3 — do not list a model id Rust can't download).
+const MODEL_CATALOG = [
+  { id: "small", label: "Small", sizeLabel: "~466 MB", speedLabel: "Fast" },
+  { id: "medium", label: "Medium", sizeLabel: "~1.5 GB", speedLabel: "Balanced" },
+] as const;
+
+// Only one download can run at a time — tracked so every row's Download button
+// disables while any download is in flight (shared progress bar under the list).
+let activeDownloadId: string | null = null;
 
 function formatHotkey(hotkey: string): string {
   const tokenMap: Record<string, string> = {
@@ -106,9 +182,8 @@ async function loadSettings() {
   // Engine
   setEngine(currentSettings.engine);
 
-  // Model
-  modelSelect.value = currentSettings.whisperModel;
-  await checkModelStatus();
+  // Model — per-model cards, downloaded-vs-available state
+  await renderModelCards();
 
   // Groq key
   groqKey.value = currentSettings.groqApiKey;
@@ -118,18 +193,30 @@ async function loadSettings() {
 
   // Hotkey
   hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
+  footerHotkey.textContent = formatHotkey(currentSettings.hotkey);
 
   // Interaction sounds
   setInteractionSounds(currentSettings.interactionSounds ?? true);
 
   // Show overlay
   setOverlayVisible(currentSettings.overlayVisible ?? true);
+
+  // Dock position (Overlay tab) — read-only, sourced from the already-deserialized
+  // overlayX/overlayY; null means the pill has never been dragged off default.
+  const { overlayX, overlayY } = currentSettings;
+  dockPositionText.textContent =
+    overlayX != null && overlayY != null
+      ? `Custom (${overlayX}, ${overlayY})`
+      : "default (bottom center)";
 }
 
 function setEngine(engine: string) {
   currentSettings.engine = engine;
-  engineLocal.classList.toggle("active", engine === "local");
-  engineCloud.classList.toggle("active", engine === "cloud");
+  const isLocal = engine === "local";
+  engineLocal.classList.toggle("active", isLocal);
+  engineLocal.setAttribute("aria-checked", String(isLocal));
+  engineCloud.classList.toggle("active", !isLocal);
+  engineCloud.setAttribute("aria-checked", String(!isLocal));
   localSettings.classList.toggle("hidden", engine !== "local");
   cloudSettings.classList.toggle("hidden", engine !== "cloud");
 }
@@ -137,33 +224,58 @@ function setEngine(engine: string) {
 function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
   modeAuto.classList.toggle("active", mode === "auto");
+  modeAuto.setAttribute("aria-checked", String(mode === "auto"));
   modeToggle.classList.toggle("active", mode === "toggle");
+  modeToggle.setAttribute("aria-checked", String(mode === "toggle"));
   modePtt.classList.toggle("active", mode === "push-to-talk");
+  modePtt.setAttribute("aria-checked", String(mode === "push-to-talk"));
 }
 
 function setInteractionSounds(enabled: boolean) {
   currentSettings.interactionSounds = enabled;
-  soundsOn.classList.toggle("active", enabled);
-  soundsOff.classList.toggle("active", !enabled);
+  soundsSwitch.classList.toggle("active", enabled);
+  soundsSwitch.setAttribute("aria-checked", String(enabled));
 }
 
 function setOverlayVisible(enabled: boolean) {
   currentSettings.overlayVisible = enabled;
-  overlayOn.classList.toggle("active", enabled);
-  overlayOff.classList.toggle("active", !enabled);
+  overlaySwitch.classList.toggle("active", enabled);
+  overlaySwitch.setAttribute("aria-checked", String(enabled));
 }
 
-async function checkModelStatus() {
-  const downloaded = await invoke<boolean>("check_model_downloaded", {
-    modelSize: modelSelect.value,
-  });
-  downloadBtn.textContent = downloaded ? "\u2713" : "Download";
-  (downloadBtn as HTMLButtonElement).disabled = downloaded;
+// Per-model cards: downloaded-vs-available state derived ONLY from the existing
+// check_model_downloaded invoke (called once per catalog entry \u2014 no new command).
+async function renderModelCards() {
+  const rows = await Promise.all(
+    MODEL_CATALOG.map(async (m) => ({
+      ...m,
+      downloaded: await invoke<boolean>("check_model_downloaded", { modelSize: m.id }),
+    }))
+  );
+
+  modelList.innerHTML = rows
+    .map((m) => {
+      const isActive = m.id === currentSettings.whisperModel;
+      const statusHtml = m.downloaded
+        ? `<span class="gate-badge downloaded">Downloaded</span><button type="button" class="btn-primary" data-use="${m.id}" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Use"}</button>`
+        : `<button type="button" class="btn-primary" data-download="${m.id}" ${activeDownloadId ? "disabled" : ""}>Download</button>`;
+      return `
+      <div class="model-card-row" data-model="${m.id}">
+        <div class="model-info">
+          <span class="model-name">${m.label}${isActive ? " (active)" : ""}</span>
+          <span class="model-meta"><span>${m.sizeLabel}</span><span>${m.speedLabel}</span></span>
+        </div>
+        <div class="model-status">${statusHtml}</div>
+      </div>`;
+    })
+    .join("");
+
+  const activeRow = rows.find((r) => r.id === currentSettings.whisperModel);
+  footerModel.textContent = `Model: ${currentSettings.whisperModel}${activeRow?.downloaded ? "" : " (not downloaded)"}`;
 }
 
 async function saveSettings() {
   currentSettings.microphone = micSelect.value;
-  currentSettings.whisperModel = modelSelect.value;
   currentSettings.groqApiKey = groqKey.value;
   await invoke("save_settings", { settings: currentSettings });
 }
@@ -181,25 +293,34 @@ engineCloud.addEventListener("click", () => {
 
 micSelect.addEventListener("change", () => saveSettings());
 
-modelSelect.addEventListener("change", async () => {
-  await checkModelStatus();
-  saveSettings();
-});
+// Event delegation: one listener for every model card's Download/Use button.
+modelList.addEventListener("click", async (e) => {
+  const target = (e.target as HTMLElement).closest("button");
+  if (!target) return;
+  const useId = target.getAttribute("data-use");
+  const downloadId = target.getAttribute("data-download");
 
-downloadBtn.addEventListener("click", async () => {
-  (downloadBtn as HTMLButtonElement).disabled = true;
-  downloadProgress.classList.remove("hidden");
-  progressFill.style.width = "0%";
-
-  try {
-    await invoke("download_model", { modelSize: modelSelect.value });
-    downloadBtn.textContent = "\u2713";
-  } catch (e) {
-    downloadBtn.textContent = "Retry";
-    (downloadBtn as HTMLButtonElement).disabled = false;
-    console.error("Download failed:", e);
+  if (useId) {
+    currentSettings.whisperModel = useId;
+    await saveSettings();
+    await renderModelCards();
+    return;
   }
-  downloadProgress.classList.add("hidden");
+
+  if (downloadId) {
+    activeDownloadId = downloadId;
+    await renderModelCards(); // disables every row's Download button while one runs
+    downloadProgress.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    try {
+      await invoke("download_model", { modelSize: downloadId });
+    } catch (err) {
+      console.error("Download failed:", err);
+    }
+    activeDownloadId = null;
+    downloadProgress.classList.add("hidden");
+    await renderModelCards();
+  }
 });
 
 groqKey.addEventListener("change", () => saveSettings());
@@ -219,23 +340,13 @@ modePtt.addEventListener("click", () => {
   saveSettings();
 });
 
-soundsOn.addEventListener("click", () => {
-  setInteractionSounds(true);
+soundsSwitch.addEventListener("click", () => {
+  setInteractionSounds(!(currentSettings.interactionSounds ?? true));
   saveSettings();
 });
 
-soundsOff.addEventListener("click", () => {
-  setInteractionSounds(false);
-  saveSettings();
-});
-
-overlayOn.addEventListener("click", () => {
-  setOverlayVisible(true);
-  saveSettings();
-});
-
-overlayOff.addEventListener("click", () => {
-  setOverlayVisible(false);
+overlaySwitch.addEventListener("click", () => {
+  setOverlayVisible(!(currentSettings.overlayVisible ?? true));
   saveSettings();
 });
 
@@ -243,16 +354,21 @@ overlayOff.addEventListener("click", () => {
 listen<string>("recording-state", (event) => {
   const state = event.payload;
   statusDot.className = "";
+  let label = "Ready";
   if (state === "Recording") {
     statusDot.classList.add("recording");
-    statusText.textContent = "Recording...";
+    label = "Recording...";
   } else if (state === "Transcribing") {
     statusDot.classList.add("transcribing");
-    statusText.textContent = "Transcribing...";
+    label = "Transcribing...";
   } else {
     statusDot.classList.add("ready");
-    statusText.textContent = "Ready";
+    label = "Ready";
   }
+  statusText.textContent = label;
+  // Sidebar footer health row (visible from every section) mirrors the same event.
+  footerSidecar.innerHTML = `<span class="dot"></span>${label}`;
+  footerSidecar.querySelector(".dot")!.className = `dot ${statusDot.className}`;
 });
 
 // Listen for download progress
