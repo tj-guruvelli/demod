@@ -10,6 +10,7 @@ use tauri_plugin_shell::ShellExt;
 
 use typr_lib::audio;
 use typr_lib::downloader;
+use typr_lib::paste::{self, PasteOutcome};
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
@@ -212,6 +213,90 @@ async fn do_toggle_recording(
     }
 }
 
+/// Same one-line eval pattern recorder.rs uses for the pill's data-state
+/// (see recorder.rs::set_overlay_state) — kept as a small local duplicate
+/// here rather than exporting recorder's private helper, since recorder.rs
+/// is under separate review right now.
+fn set_overlay_pill_state(app: &tauri::AppHandle, name: &str) {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let js = format!("document.getElementById('mic').dataset.state = '{}';", name);
+        let _ = overlay.eval(&js);
+    }
+}
+
+/// US-009 quick-menu item: "Hide for 1 hour". Hides the overlay window (the
+/// hotkey keeps working while hidden — recording never depends on overlay
+/// visibility) and un-hides it after a single tokio sleep, no polling. If the
+/// user has separately turned the overlay off in Settings while it was
+/// hidden, respect that and stay hidden instead of popping back up.
+#[tauri::command]
+fn menu_hide_hour(app: tauri::AppHandle) -> Result<(), String> {
+    let overlay = app
+        .get_webview_window("overlay")
+        .ok_or_else(|| "overlay window not found".to_string())?;
+    overlay.hide().map_err(|e| e.to_string())?;
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        let state = handle.state::<AppState>();
+        let overlay_visible = state.settings.lock().unwrap().overlay_visible;
+        if overlay_visible {
+            if let Some(overlay) = handle.get_webview_window("overlay") {
+                if let Err(e) = overlay.show() {
+                    eprintln!("[Typr] Failed to re-show overlay after hide-for-1-hour: {}", e);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// US-009 quick-menu item: "Paste last transcript". Reuses the exact US-007
+/// paste path (capture_foreground_window + paste_text with the same
+/// clipboard-save/restore + focus-guard behavior) rather than a second paste
+/// implementation. If there is no last transcript yet, this is a real no-op
+/// (nothing to paste), not a fake/dead button.
+#[tauri::command]
+fn menu_paste_last(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    let Some(text) = state.recorder.get_last_transcript() else {
+        return Err("No transcript yet".to_string());
+    };
+    let target = paste::capture_foreground_window();
+    match paste::paste_text(&text, target) {
+        PasteOutcome::Pasted => {
+            set_overlay_pill_state(&app, "done");
+            Ok(())
+        }
+        PasteOutcome::Fallback => {
+            set_overlay_pill_state(&app, "paste-fallback");
+            Ok(())
+        }
+    }
+}
+
+/// US-009 quick-menu item: "Settings". Shows and focuses the existing main
+/// settings window (default label "main" — the only window() entry in
+/// tauri.conf.json).
+#[tauri::command]
+fn menu_open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    main.show().map_err(|e| e.to_string())?;
+    main.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// US-009 quick-menu item: "Quit". app.exit() drives the existing
+/// RunEvent::Exit handler in main(), which already kills the whisper-server
+/// sidecar and uninstalls the pill hit-test hook — no duplicate cleanup here.
+#[tauri::command]
+fn menu_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     let app_dir = get_app_dir();
     let settings = Settings::load(&app_dir);
@@ -237,6 +322,10 @@ fn main() {
             check_model_downloaded,
             download_model,
             toggle_recording,
+            menu_hide_hour,
+            menu_paste_last,
+            menu_open_settings,
+            menu_quit,
         ])
         .setup(move |app| {
             // Create the overlay window: a Wispr-style status pill, bottom-center,
