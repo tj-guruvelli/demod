@@ -54,6 +54,25 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
 - Interaction sounds: src-tauri/src/sounds.rs embeds start.wav/stop.wav ('static via
   include_bytes!) and plays through winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT -
   non-blocking, no audio crate. Call sounds::play_start(enabled)/play_stop(enabled).
+- recording_mode gesture state (US-005): AppState carries ONE hotkey_gesture: Mutex<enum
+  {Idle, Pressed(Instant), HandsFree}> for the "auto" tap/hold discrimination - NOT two
+  independently-locked fields (a Mutex<Option<Instant>> + a separate AtomicBool). Code
+  review caught that two separate locks let a fast Pressed/Released pair observe an
+  in-between combination that could never occur in true wall-clock order (TOCTOU between
+  the two locks). One enum behind one lock makes the whole read-decide-mutate step atomic.
+  Tap-vs-hold needs NO timer/sleep - it's decided by comparing Instant::now() at the Pressed
+  and Released event boundaries the OS already delivers, so it stays fully event-driven.
+  "auto" is additive: the existing "toggle" and "push-to-talk" branches are untouched, so
+  legacy explicit settings behave exactly as before.
+- Pattern: whenever a gesture/state machine needs 2+ pieces of correlated mutable state
+  read together to make one decision (e.g. "is this a second tap"), put them in ONE enum
+  behind ONE lock, not N independently-synchronized fields - even if each field's own
+  updates look atomic in isolation, the multi-field READ can still observe a torn
+  combination. Use code-reviewer proactively on new concurrent/event-driven state machines
+  before committing; it caught this one.
+- cargo test --lib only exercises typr_lib (settings.rs, recorder.rs, etc.) - main.rs is the
+  bin crate and has no unit tests; `cargo check` (checks all targets incl. the bin) is the
+  gate that actually compiles the hotkey closure in main.rs.
 ---
 
 ## 2026-07-19 - US-001
@@ -168,3 +187,45 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   emits, US-009 commands + hit-rect widening. See OVERLAY WEBVIEW CONTRACT in patterns above.
 - Swarm note: 3 parallel workers (disjoint file sets), all three gates re-run at the barrier by
   the orchestrator: npm run build ok, cargo check ok, cargo test --lib 24/24 ok.
+
+## 2026-07-20 - US-005 (one key, three gestures: tap toggles, hold is push-to-talk)
+- main.rs: added an "auto" branch (new default recording_mode) alongside the existing
+  toggle/push-to-talk logic, which is untouched. Gesture model per research section 2:
+  keydown always starts capture immediately (Ready -> Recording, same instant overlay+ping
+  sync path as US-004); if the matching keyup lands under 300ms it's a tap (recording
+  continues hands-free); past 300ms it's a hold and keyup stops+transcribes (push-to-talk);
+  a further keydown while hands-free (second tap) stops+transcribes immediately, without
+  waiting for its keyup.
+- New AppState field: hotkey_gesture (Mutex<HotkeyGesture> where HotkeyGesture is
+  Idle/Pressed(Instant)/HandsFree) - ONE lock, not two independently-synchronized fields
+  (see Codebase Patterns above; a code-reviewer pass before commit caught the two-field
+  version's TOCTOU and this was consolidated in response). Pressed(now) is stamped when a
+  fresh recording starts; Released reads-and-reclassifies it to HandsFree (tap) or Idle
+  (hold, stop) under the same lock a second-tap Pressed checks. No timers/sleeps anywhere -
+  tap-vs-hold is a duration comparison at the two real OS-delivered event boundaries.
+- settings.rs: Settings::default().recording_mode changed from "toggle" to "auto". Explicit
+  saved values ("toggle"/"push-to-talk" from before this story) still deserialize literally
+  since serde only supplies the Default when the whole file fails to parse or the field is
+  absent - added an assertion to the existing pre-US-004 compat test proving this.
+- index.html/main.ts: added a third "Auto" button to the Recording Mode toggle-group,
+  wired identically to the existing Toggle/Push to Talk buttons.
+- Files changed: src-tauri/src/main.rs, src-tauri/src/settings.rs, index.html, src/main.ts,
+  prd.json, progress.txt.
+- Checks: npm run build exit 0; cargo check clean (2.6s, no warnings); cargo test --lib
+  24/24 pass (settings::tests::test_default_settings now asserts "auto",
+  test_load_pre_us004_config_gives_true_defaults now also asserts the explicit "toggle" in
+  that fixture round-trips unchanged). NOT verified at runtime (no browser/UI tools this
+  iteration): actual tap/hold timing feel and the second-tap-stop path need a manual dev
+  run; US-011 covers the end-to-end launch check.
+- **Learnings for future iterations:**
+  - US-006's Esc-cancel guard will need its own recording-duration tracking; it can reuse
+    the same "stamp an Instant when recording starts, read it later" shape as
+    hotkey_gesture's Pressed(Instant) variant, but should NOT share that field
+    (hotkey_gesture is consumed/reclassified by Released and is specific to tap/hold
+    gesture detection - Esc needs the duration to persist across the Released that flips to
+    HandsFree, i.e. for the whole Recording lifetime, not just one press/release pair).
+    Track cancel-guard time in Recorder or a separate AppState field.
+  - The 300ms tap/hold threshold and the "auto" mode name are both referenced directly in
+    index.html's Recording Mode hint text - keep that hint in sync if either changes.
+  - When a new gesture/state machine needs 2+ correlated fields to decide something, use
+    ONE enum behind ONE lock, not N separately-locked fields - see Codebase Patterns above.

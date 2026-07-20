@@ -10,6 +10,8 @@ pub struct Settings {
     pub whisper_model: String,
     #[serde(rename = "groqApiKey")]
     pub groq_api_key: String,
+    /// "auto" (default, US-005 tap/hold gesture model), or the legacy
+    /// explicit overrides "toggle" / "push-to-talk".
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
@@ -43,7 +45,7 @@ impl Default for Settings {
             engine: "local".to_string(),
             whisper_model: "small".to_string(),
             groq_api_key: String::new(),
-            recording_mode: "toggle".to_string(),
+            recording_mode: "auto".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             overlay_x: None,
             overlay_y: None,
@@ -86,7 +88,7 @@ mod tests {
         assert_eq!(settings.engine, "local");
         assert_eq!(settings.whisper_model, "small");
         assert_eq!(settings.groq_api_key, "");
-        assert_eq!(settings.recording_mode, "toggle");
+        assert_eq!(settings.recording_mode, "auto");
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
     }
 
@@ -151,6 +153,9 @@ mod tests {
         let settings = Settings::load(&dir);
         assert_eq!(settings.interaction_sounds, true);
         assert_eq!(settings.overlay_visible, true);
+        // US-005: the new "auto" default must not silently override an
+        // explicit recordingMode saved by a pre-US-005 build.
+        assert_eq!(settings.recording_mode, "toggle");
 
         let _ = fs::remove_dir_all(&dir);
     }

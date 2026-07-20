@@ -68,8 +68,8 @@
         "cargo check passes and npm run build passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "main.rs: 'auto' branch added alongside the existing toggle/push-to-talk (unchanged). Gesture state is ONE enum (HotkeyGesture: Idle/Pressed(Instant)/HandsFree) behind ONE Mutex on AppState (hotkey_gesture) - deliberately not two independently-locked fields, so the read-decide-mutate step for a Pressed/Released pair is a single atomic transaction (code review caught that two separate locks let a fast second tap observe an in-between combination that could never occur in real wall-clock order). Pressed: if Ready, starts capture immediately (sync overlay+ping, same as US-004) and stores Pressed(now); if Recording and gesture==HandsFree (second tap), swaps it to Idle and stops+transcribes immediately, no keyup wait. Released: locks once, matches Pressed(t) - <300ms elapsed sets HandsFree (keeps recording, hands-free), >=300ms sets Idle and stops+transcribes (PTT); Idle/HandsFree here means this Released follows an already-finalized second tap - no-op. No sleeps; tap/hold decided by comparing Instant::now() at the real event boundaries. settings.rs default recording_mode is now 'auto' (explicit saved 'toggle'/'push-to-talk' still load literally - see test_load_pre_us004_config_gives_true_defaults assertion). index.html/main.ts gained a third 'Auto' toggle button in Recording Mode, wired the same way as the existing two. Reviewed by code-reviewer agent before commit (HIGH finding on lock consolidation fixed; remaining MEDIUM/LOW are pre-existing architectural tradeoffs shared by all recording modes, not new in this story)."
     },
     {
       "id": "US-006",

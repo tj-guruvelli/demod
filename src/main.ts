@@ -37,6 +37,7 @@ const downloadBtn = document.getElementById("download-btn")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
+const modeAuto = document.getElementById("mode-auto")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
@@ -135,6 +136,7 @@ function setEngine(engine: string) {
 
 function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
+  modeAuto.classList.toggle("active", mode === "auto");
   modeToggle.classList.toggle("active", mode === "toggle");
   modePtt.classList.toggle("active", mode === "push-to-talk");
 }
@@ -201,6 +203,11 @@ downloadBtn.addEventListener("click", async () => {
 });
 
 groqKey.addEventListener("change", () => saveSettings());
+
+modeAuto.addEventListener("click", () => {
+  setRecordingMode("auto");
+  saveSettings();
+});
 
 modeToggle.addEventListener("click", () => {
   setRecordingMode("toggle");
