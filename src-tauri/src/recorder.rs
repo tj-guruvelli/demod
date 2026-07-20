@@ -6,7 +6,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as HotkeySta
 
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
-use crate::paste::paste_text;
+use crate::paste::{capture_foreground_window, paste_text, PasteOutcome};
 use crate::settings::Settings;
 use crate::transcribe_local;
 use crate::transcribe_groq;
@@ -91,6 +91,11 @@ pub struct Recorder {
     /// When the current recording started (US-006 30s guard); None while idle.
     recording_started_at: Arc<Mutex<Option<Instant>>>,
     cancel_guard: Arc<Mutex<CancelGuard>>,
+    /// Last successfully transcribed (non-empty) text (US-007), for the
+    /// Shift+Alt+Z re-paste shortcut and the quick menu's "Paste last
+    /// transcript" item. Written once, at the single site that produces a
+    /// transcript, rather than duplicated across every hotkey call site.
+    last_transcript: Arc<Mutex<Option<String>>>,
 }
 
 impl Recorder {
@@ -100,11 +105,16 @@ impl Recorder {
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
             recording_started_at: Arc::new(Mutex::new(None)),
             cancel_guard: Arc::new(Mutex::new(CancelGuard::None)),
+            last_transcript: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn get_state(&self) -> RecordingState {
         self.state.lock().unwrap().clone()
+    }
+
+    pub fn get_last_transcript(&self) -> Option<String> {
+        self.last_transcript.lock().unwrap().clone()
     }
 
     /// Register the Esc shortcut for the lifetime of one recording (US-006).
@@ -215,6 +225,12 @@ impl Recorder {
             let _ = app.emit("recording-state", RecordingState::Transcribing);
             update_overlay(app, &RecordingState::Transcribing);
         }
+        // US-007 focus guard: capture the foreground window now, at the
+        // moment capture stops, not after the slow transcription step below
+        // - by paste time the user may have switched apps, and pasting
+        // there instead of where they dictated is the bug this guards
+        // against.
+        let paste_target = capture_foreground_window();
         // Leaving Recording: the Esc cancel guard no longer applies.
         *self.recording_started_at.lock().unwrap() = None;
         *self.cancel_guard.lock().unwrap() = CancelGuard::None;
@@ -248,17 +264,28 @@ impl Recorder {
         // Clean up text
         let cleaned = cleanup_text(&raw_text);
 
-        // Auto-paste
-        if !cleaned.is_empty() {
-            paste_text(&cleaned)?;
-        }
+        // Auto-paste into the window that was focused when capture stopped
+        // (US-007). None = nothing to paste, so there is no outcome to report.
+        let paste_outcome = if cleaned.is_empty() {
+            None
+        } else {
+            *self.last_transcript.lock().unwrap() = Some(cleaned.clone());
+            Some(paste_text(&cleaned, paste_target))
+        };
 
         // Reset state
         {
             let mut state = self.state.lock().unwrap();
             *state = RecordingState::Ready;
             let _ = app.emit("recording-state", RecordingState::Ready);
-            update_overlay(app, &RecordingState::Ready);
+            match paste_outcome {
+                // Refocus or the paste itself failed: the transcript is sitting
+                // on the clipboard and the overlay says so. Hold that message
+                // instead of snapping to idle - idle here would silently discard
+                // the only signal the user gets that they must paste manually.
+                Some(PasteOutcome::Fallback) => set_overlay_state(app, "paste-fallback"),
+                _ => update_overlay(app, &RecordingState::Ready),
+            }
         }
 
         Ok(cleaned)
