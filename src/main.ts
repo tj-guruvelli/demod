@@ -350,9 +350,10 @@ overlaySwitch.addEventListener("click", () => {
   saveSettings();
 });
 
-// Listen for recording state changes
-listen<string>("recording-state", (event) => {
-  const state = event.payload;
+// Render one recording state into the header indicator and the sidebar footer
+// health row. Shared by the initial read and the live event so the two can
+// never drift apart.
+function renderRecordingState(state: string) {
   statusDot.className = "";
   let label = "Ready";
   if (state === "Recording") {
@@ -366,10 +367,25 @@ listen<string>("recording-state", (event) => {
     label = "Ready";
   }
   statusText.textContent = label;
-  // Sidebar footer health row (visible from every section) mirrors the same event.
+  // Sidebar footer health row (visible from every section) mirrors the same state.
   footerSidecar.innerHTML = `<span class="dot"></span>${label}`;
   footerSidecar.querySelector(".dot")!.className = `dot ${statusDot.className}`;
-});
+}
+
+// Read the CURRENT state when the window opens. Without this the indicator sat
+// on a hardcoded "Ready" until the next transition, so opening Settings while
+// a dictation was in flight reported a status that was simply false. The
+// get_recording_state command already existed and was registered; nothing had
+// ever called it.
+invoke<string>("get_recording_state")
+  .then(renderRecordingState)
+  .catch(() => {
+    // Never assert "Ready" we did not read.
+    statusText.textContent = "Unknown";
+  });
+
+// Listen for recording state changes
+listen<string>("recording-state", (event) => renderRecordingState(event.payload));
 
 // Listen for download progress
 listen<DownloadProgress>("download-progress", (event) => {
