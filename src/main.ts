@@ -36,8 +36,7 @@ const engineLocal = document.getElementById("engine-local")!;
 const engineCloud = document.getElementById("engine-cloud")!;
 const localSettings = document.getElementById("local-settings")!;
 const cloudSettings = document.getElementById("cloud-settings")!;
-const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
-const downloadBtn = document.getElementById("download-btn")!;
+const modelList = document.getElementById("model-list")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
@@ -46,8 +45,7 @@ const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
 const soundsSwitch = document.getElementById("sounds-switch")!;
-const overlayOn = document.getElementById("overlay-on")!;
-const overlayOff = document.getElementById("overlay-off")!;
+const overlaySwitch = document.getElementById("overlay-switch")!;
 const dockPositionText = document.getElementById("dock-position-text")!;
 const footerSidecar = document.getElementById("footer-sidecar")!;
 const footerModel = document.getElementById("footer-model")!;
@@ -103,6 +101,17 @@ sidebar.addEventListener("mousedown", (e) => {
 
 let currentSettings: Settings;
 
+// Static catalog matching exactly the two sizes settings.rs / download_model
+// already support (US-014/015 §4.3 — do not list a model id Rust can't download).
+const MODEL_CATALOG = [
+  { id: "small", label: "Small", sizeLabel: "~466 MB", speedLabel: "Fast" },
+  { id: "medium", label: "Medium", sizeLabel: "~1.5 GB", speedLabel: "Balanced" },
+] as const;
+
+// Only one download can run at a time — tracked so every row's Download button
+// disables while any download is in flight (shared progress bar under the list).
+let activeDownloadId: string | null = null;
+
 function formatHotkey(hotkey: string): string {
   const tokenMap: Record<string, string> = {
     CmdOrCtrl: "Ctrl",
@@ -132,9 +141,8 @@ async function loadSettings() {
   // Engine
   setEngine(currentSettings.engine);
 
-  // Model
-  modelSelect.value = currentSettings.whisperModel;
-  await checkModelStatus();
+  // Model — per-model cards, downloaded-vs-available state
+  await renderModelCards();
 
   // Groq key
   groqKey.value = currentSettings.groqApiKey;
@@ -157,8 +165,8 @@ async function loadSettings() {
   const { overlayX, overlayY } = currentSettings;
   dockPositionText.textContent =
     overlayX != null && overlayY != null
-      ? `Custom · (${overlayX}, ${overlayY})`
-      : "Default · bottom-center";
+      ? `Custom (${overlayX}, ${overlayY})`
+      : "default (bottom center)";
 }
 
 function setEngine(engine: string) {
@@ -184,22 +192,43 @@ function setInteractionSounds(enabled: boolean) {
 
 function setOverlayVisible(enabled: boolean) {
   currentSettings.overlayVisible = enabled;
-  overlayOn.classList.toggle("active", enabled);
-  overlayOff.classList.toggle("active", !enabled);
+  overlaySwitch.classList.toggle("active", enabled);
+  overlaySwitch.setAttribute("aria-checked", String(enabled));
 }
 
-async function checkModelStatus() {
-  const downloaded = await invoke<boolean>("check_model_downloaded", {
-    modelSize: modelSelect.value,
-  });
-  downloadBtn.textContent = downloaded ? "\u2713" : "Download";
-  (downloadBtn as HTMLButtonElement).disabled = downloaded;
-  footerModel.textContent = `Model: ${modelSelect.value}${downloaded ? "" : " (not downloaded)"}`;
+// Per-model cards: downloaded-vs-available state derived ONLY from the existing
+// check_model_downloaded invoke (called once per catalog entry \u2014 no new command).
+async function renderModelCards() {
+  const rows = await Promise.all(
+    MODEL_CATALOG.map(async (m) => ({
+      ...m,
+      downloaded: await invoke<boolean>("check_model_downloaded", { modelSize: m.id }),
+    }))
+  );
+
+  modelList.innerHTML = rows
+    .map((m) => {
+      const isActive = m.id === currentSettings.whisperModel;
+      const statusHtml = m.downloaded
+        ? `<span class="gate-badge downloaded">Downloaded</span><button type="button" class="btn-primary" data-use="${m.id}" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Use"}</button>`
+        : `<button type="button" class="btn-primary" data-download="${m.id}" ${activeDownloadId ? "disabled" : ""}>Download</button>`;
+      return `
+      <div class="model-card-row" data-model="${m.id}">
+        <div class="model-info">
+          <span class="model-name">${m.label}${isActive ? " (active)" : ""}</span>
+          <span class="model-meta"><span>${m.sizeLabel}</span><span>${m.speedLabel}</span></span>
+        </div>
+        <div class="model-status">${statusHtml}</div>
+      </div>`;
+    })
+    .join("");
+
+  const activeRow = rows.find((r) => r.id === currentSettings.whisperModel);
+  footerModel.textContent = `Model: ${currentSettings.whisperModel}${activeRow?.downloaded ? "" : " (not downloaded)"}`;
 }
 
 async function saveSettings() {
   currentSettings.microphone = micSelect.value;
-  currentSettings.whisperModel = modelSelect.value;
   currentSettings.groqApiKey = groqKey.value;
   await invoke("save_settings", { settings: currentSettings });
 }
@@ -217,25 +246,34 @@ engineCloud.addEventListener("click", () => {
 
 micSelect.addEventListener("change", () => saveSettings());
 
-modelSelect.addEventListener("change", async () => {
-  await checkModelStatus();
-  saveSettings();
-});
+// Event delegation: one listener for every model card's Download/Use button.
+modelList.addEventListener("click", async (e) => {
+  const target = (e.target as HTMLElement).closest("button");
+  if (!target) return;
+  const useId = target.getAttribute("data-use");
+  const downloadId = target.getAttribute("data-download");
 
-downloadBtn.addEventListener("click", async () => {
-  (downloadBtn as HTMLButtonElement).disabled = true;
-  downloadProgress.classList.remove("hidden");
-  progressFill.style.width = "0%";
-
-  try {
-    await invoke("download_model", { modelSize: modelSelect.value });
-    downloadBtn.textContent = "\u2713";
-  } catch (e) {
-    downloadBtn.textContent = "Retry";
-    (downloadBtn as HTMLButtonElement).disabled = false;
-    console.error("Download failed:", e);
+  if (useId) {
+    currentSettings.whisperModel = useId;
+    await saveSettings();
+    await renderModelCards();
+    return;
   }
-  downloadProgress.classList.add("hidden");
+
+  if (downloadId) {
+    activeDownloadId = downloadId;
+    await renderModelCards(); // disables every row's Download button while one runs
+    downloadProgress.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    try {
+      await invoke("download_model", { modelSize: downloadId });
+    } catch (err) {
+      console.error("Download failed:", err);
+    }
+    activeDownloadId = null;
+    downloadProgress.classList.add("hidden");
+    await renderModelCards();
+  }
 });
 
 groqKey.addEventListener("change", () => saveSettings());
@@ -260,13 +298,8 @@ soundsSwitch.addEventListener("click", () => {
   saveSettings();
 });
 
-overlayOn.addEventListener("click", () => {
-  setOverlayVisible(true);
-  saveSettings();
-});
-
-overlayOff.addEventListener("click", () => {
-  setOverlayVisible(false);
+overlaySwitch.addEventListener("click", () => {
+  setOverlayVisible(!(currentSettings.overlayVisible ?? true));
   saveSettings();
 });
 

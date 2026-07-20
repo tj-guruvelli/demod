@@ -524,19 +524,55 @@ input[type="password"]::placeholder {
   cursor: default;
 }
 
-/* ── Model Row / Progress ───────────────────────────── */
+/* ── Model cards (per-model downloaded/available state) ─ */
 
-.model-row {
+.model-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-card-row:last-child {
+  border-bottom: none;
+}
+
+.model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.model-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
   display: flex;
   gap: 8px;
-  width: 100%;
-  max-width: 260px;
 }
 
-.model-row select {
-  flex: 1;
-  max-width: none;
+.model-status {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.model-status .gate-badge.downloaded {
+  color: var(--green);
+  border-color: rgba(111, 224, 140, 0.3);
+  background: rgba(111, 224, 140, 0.08);
+}
+
+/* ── Download progress ───────────────────────────────── */
 
 #download-progress {
   padding: 0 0 16px;

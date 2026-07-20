@@ -174,10 +174,16 @@
                 <span class="label-hint">Display the recording overlay while transcribing</span>
               </div>
               <div class="setting-control">
-                <div class="toggle-group">
-                  <button id="overlay-on" class="toggle-btn active">On</button>
-                  <button id="overlay-off" class="toggle-btn">Off</button>
-                </div>
+                <button
+                  type="button"
+                  id="overlay-switch"
+                  class="switch active"
+                  role="switch"
+                  aria-checked="true"
+                  aria-label="Show overlay"
+                >
+                  <span class="switch-knob"></span>
+                </button>
               </div>
             </div>
             <div class="setting-row">
@@ -214,21 +220,7 @@
           </div>
           <div class="card" id="local-settings">
             <div class="card-header">Voice model</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Model Size</span>
-                <span class="label-hint">Larger models are more accurate but use more resources</span>
-              </div>
-              <div class="setting-control">
-                <div class="model-row">
-                  <select id="model-select">
-                    <option value="small">Small (~466 MB)</option>
-                    <option value="medium">Medium (~1.5 GB)</option>
-                  </select>
-                  <button id="download-btn" class="btn-primary">Download</button>
-                </div>
-              </div>
-            </div>
+            <div id="model-list"></div>
             <div id="download-progress" class="hidden">
               <div id="progress-bar"><div id="progress-fill"></div></div>
             </div>
