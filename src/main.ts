@@ -163,6 +163,10 @@ let currentSettings: Settings;
 // "large-v3" id maps to ggml-large-v3.bin via the existing ggml-{id}.bin URL
 // scheme in transcribe_local::model_download_url — verified present at
 // https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+// The cloud engine's model is fixed server-side in transcribe_groq.rs; named
+// here only so the footer can say what is actually transcribing.
+const GROQ_MODEL = "whisper-large-v3-turbo";
+
 const MODEL_CATALOG = [
   { id: "small", label: "Small", sizeLabel: "~466 MB", speedLabel: "Fast" },
   { id: "medium", label: "Medium", sizeLabel: "~1.5 GB", speedLabel: "Balanced" },
@@ -396,7 +400,13 @@ async function renderModelCards() {
       : activeRow.downloaded
         ? ""
         : " (not downloaded)";
-  footerModel.textContent = `Model: ${currentSettings.whisperModel}${suffix}`;
+  // Engine-aware: on cloud the local Whisper model is not what is transcribing,
+  // so reporting "medium (not downloaded)" there is both irrelevant and alarming
+  // - it reads as broken when nothing is wrong. Name what is actually running.
+  footerModel.textContent =
+    currentSettings.engine === "cloud"
+      ? `Model: Groq ${GROQ_MODEL}`
+      : `Model: ${currentSettings.whisperModel}${suffix}`;
 }
 
 /// Window-level failure message. Kept to one line of plain language: the

@@ -459,6 +459,12 @@ body {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* Rows with more than one control (the two sound-preview buttons) overflowed
+     the window: min-width:0 lets this box shrink below its content, so the
+     buttons were clipped at the right edge and the second was pushed
+     off-screen entirely. Wrap instead of overflowing. Caught by screenshotting
+     the real app, not by any gate. */
+  flex-wrap: wrap;
 }
 
 /* Read-only text row value (e.g. Overlay → Dock position graft) */
@@ -632,6 +638,7 @@ input[type="password"]::placeholder {
 }
 
 .btn-secondary {
+  flex-shrink: 0;
   padding: 7px 14px;
   background: var(--surface-solid);
   color: var(--text);
