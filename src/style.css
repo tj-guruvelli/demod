@@ -495,6 +495,20 @@ input[type="password"]::placeholder {
   transition: background-color var(--ease-out), border-color var(--ease-out);
 }
 
+/* WCAG 2.2 target size (2.5.8, AA) asks for 24x24 CSS px; this switch measures
+   34x20. The visual size is fixed by the design, so expand only the HIT area
+   with a pseudo-element - clicks in it dispatch to the button and the control
+   looks identical. 4px top and bottom takes the target to 34x28. Adjacent
+   controls are rows away, so this cannot swallow a neighbour. */
+.switch::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+}
+
 .switch .switch-knob {
   position: absolute;
   top: 1px;
