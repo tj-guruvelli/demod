@@ -257,6 +257,32 @@ impl Recorder {
         Ok(())
     }
 
+    /// Return to Ready after a dictation that could not finish, and tell the
+    /// user what happened.
+    ///
+    /// Every fallible step in stop_and_transcribe used `?`, which returned
+    /// early while the state was still Transcribing - and start_recording
+    /// accepts ONLY Ready. So a single failure (a missing or corrupt model, an
+    /// empty Groq key, a network blip, a mic unplugged mid-sentence) left the
+    /// hotkey permanently rejecting every press, the pill frozen mid
+    /// animation, and nothing on screen explaining why. The app had to be
+    /// restarted to dictate again.
+    ///
+    /// `user_message` must be a fixed string, never raw engine output: it is
+    /// shown to the user, and the underlying error goes to the log instead.
+    fn fail_to_ready(&self, app: &AppHandle, user_message: &str) {
+        {
+            let mut state = self.state.lock().unwrap();
+            *state = RecordingState::Ready;
+        }
+        let _ = app.emit("recording-state", RecordingState::Ready);
+        set_status_dot(app, "off");
+        // Sent as an event payload (assigned with textContent in the webview)
+        // rather than built into an eval string, so nothing here is a script
+        // injection surface.
+        let _ = app.emit_to("overlay", "notice", user_message.to_string());
+    }
+
     pub async fn stop_and_transcribe(
         &self,
         app: &AppHandle,
@@ -295,8 +321,14 @@ impl Recorder {
 
         // Save audio
         {
-            let mut recorder = self.audio_recorder.lock().unwrap();
-            recorder.stop_and_save(&temp_path)?;
+            let result = {
+                let mut recorder = self.audio_recorder.lock().unwrap();
+                recorder.stop_and_save(&temp_path)
+            };
+            if let Err(e) = result {
+                self.fail_to_ready(app, "Could not save the recording");
+                return Err(e);
+            }
         }
 
         // Transcribe. Race the actual engine call against the 300ms
@@ -328,11 +360,23 @@ impl Recorder {
         )
         .await
         {
-            Ok(result) => result?,
+            Ok(result) => match result {
+                Ok(text) => text,
+                Err(e) => {
+                    self.fail_to_ready(app, "Transcription failed");
+                    return Err(e);
+                }
+            },
             Err(_elapsed) => {
                 update_overlay(app, &RecordingState::Transcribing);
                 set_status_dot(app, "processing");
-                transcribe_fut.await?
+                match transcribe_fut.await {
+                    Ok(text) => text,
+                    Err(e) => {
+                        self.fail_to_ready(app, "Transcription failed");
+                        return Err(e);
+                    }
+                }
             }
         };
 

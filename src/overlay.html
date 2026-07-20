@@ -394,6 +394,30 @@
         }
       })();
 
+      // Failed dictation notice. Rust reports a dictation that could not
+      // finish here, so the pill says what happened instead of sitting in an
+      // animation forever. Delivered as an event payload assigned with
+      // textContent, never interpolated into an eval string - engine and
+      // network errors are not our text to trust.
+      (() => {
+        const mic = document.getElementById('mic');
+        const tauri = window.__TAURI__;
+        if (!tauri || !tauri.webviewWindow) return;
+        let timer = null;
+        tauri.webviewWindow.getCurrentWebviewWindow().listen('notice', (e) => {
+          const el = document.getElementById('notice-text');
+          if (!el) return;
+          el.textContent = String(e.payload || '');
+          mic.dataset.state = 'notice';
+          if (timer) clearTimeout(timer);
+          // Revert only if nothing else has changed state meanwhile, so a
+          // dictation started during the notice is never clobbered.
+          timer = setTimeout(() => {
+            if (mic.dataset.state === 'notice') mic.dataset.state = 'idle';
+          }, 3200);
+        });
+      })();
+
       // Right-click quick menu (US-009). All commands are now backed by real
       // Rust handlers in main.rs / pill_hittest.rs; invoke() stays wrapped in
       // .catch to avoid an uncaught rejection if a call ever fails.
