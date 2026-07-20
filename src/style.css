@@ -60,6 +60,17 @@
   box-sizing: border-box;
 }
 
+/* The HTML `hidden` attribute is only a UA rule (`[hidden] { display: none }`),
+   so ANY component rule that sets `display` silently overrides it and the
+   element renders anyway. That shipped: the Groq save/test status badges carry
+   `hidden`, but .gate-badge sets display:inline-flex, so they appeared as two
+   empty grey pills. Making this authoritative fixes it everywhere and stops the
+   next component from re-introducing it - which is why the one-off
+   #app-notice[hidden] rule below was needed in the first place. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   font-family: var(--font);
   background: var(--bg);

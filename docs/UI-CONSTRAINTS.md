@@ -84,7 +84,15 @@ token and its tints drift apart. Status tints use `rgba(var(--x-rgb), a)`; white
 overlays are named by role, so a background and a border never share a token by
 accident. `grep` for a hex or `rgba(` digit outside `:root` should return nothing.
 
-**15. Do not add a Tauri command without a caller, or an invoke without a command.**
+**15. `hidden` does not hide an element that has a `display` rule.**
+The HTML `hidden` attribute is only a user-agent rule, so any component rule setting
+`display` silently overrides it. This shipped twice: `#app-notice` needed a one-off
+`[hidden]` rule, and later the Groq save/test badges rendered as two empty grey pills
+because `.gate-badge` sets `display: inline-flex`. There is now an authoritative
+`[hidden] { display: none !important }` in the reset. Do not remove it, and do not
+"fix" a stuck element with a second one-off rule.
+
+**16. Do not add a Tauri command without a caller, or an invoke without a command.**
 Two commands shipped dead. The four `menu_*` commands are bound indirectly through
 `data-action`, so grepping for `invoke('menu_quit')` finds nothing — see
 [ARCHITECTURE.md](./ARCHITECTURE.md) for the full contract inventory.
