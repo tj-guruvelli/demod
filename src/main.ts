@@ -9,6 +9,8 @@ interface Settings {
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
+  interactionSounds?: boolean;
+  overlayVisible?: boolean;
 }
 
 interface MicDevice {
@@ -38,6 +40,10 @@ const groqKey = document.getElementById("groq-key") as HTMLInputElement;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
+const soundsOn = document.getElementById("sounds-on")!;
+const soundsOff = document.getElementById("sounds-off")!;
+const overlayOn = document.getElementById("overlay-on")!;
+const overlayOff = document.getElementById("overlay-off")!;
 
 // Section navigation
 const navItems = document.querySelectorAll(".nav-item");
@@ -70,6 +76,18 @@ sidebar.addEventListener("mousedown", (e) => {
 
 let currentSettings: Settings;
 
+function formatHotkey(hotkey: string): string {
+  const tokenMap: Record<string, string> = {
+    CmdOrCtrl: "Ctrl",
+    Cmd: "Ctrl",
+    Super: "Win",
+  };
+  return hotkey
+    .split("+")
+    .map((token) => tokenMap[token] ?? token)
+    .join("+");
+}
+
 async function loadSettings() {
   currentSettings = await invoke<Settings>("get_settings");
 
@@ -98,7 +116,13 @@ async function loadSettings() {
   setRecordingMode(currentSettings.recordingMode);
 
   // Hotkey
-  hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Cmd");
+  hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
+
+  // Interaction sounds
+  setInteractionSounds(currentSettings.interactionSounds ?? true);
+
+  // Show overlay
+  setOverlayVisible(currentSettings.overlayVisible ?? true);
 }
 
 function setEngine(engine: string) {
@@ -113,6 +137,18 @@ function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
   modeToggle.classList.toggle("active", mode === "toggle");
   modePtt.classList.toggle("active", mode === "push-to-talk");
+}
+
+function setInteractionSounds(enabled: boolean) {
+  currentSettings.interactionSounds = enabled;
+  soundsOn.classList.toggle("active", enabled);
+  soundsOff.classList.toggle("active", !enabled);
+}
+
+function setOverlayVisible(enabled: boolean) {
+  currentSettings.overlayVisible = enabled;
+  overlayOn.classList.toggle("active", enabled);
+  overlayOff.classList.toggle("active", !enabled);
 }
 
 async function checkModelStatus() {
@@ -173,6 +209,26 @@ modeToggle.addEventListener("click", () => {
 
 modePtt.addEventListener("click", () => {
   setRecordingMode("push-to-talk");
+  saveSettings();
+});
+
+soundsOn.addEventListener("click", () => {
+  setInteractionSounds(true);
+  saveSettings();
+});
+
+soundsOff.addEventListener("click", () => {
+  setInteractionSounds(false);
+  saveSettings();
+});
+
+overlayOn.addEventListener("click", () => {
+  setOverlayVisible(true);
+  saveSettings();
+});
+
+overlayOff.addEventListener("click", () => {
+  setOverlayVisible(false);
   saveSettings();
 });
 
