@@ -39,6 +39,23 @@ pub struct PasteTarget {
     pid: u32,
 }
 
+/// Append one line about why a paste did or did not happen.
+///
+/// "It copied instead of pasting" is the only failure of this feature a user
+/// can actually see, and from outside it is indistinguishable between three
+/// causes: nothing was captured, they genuinely switched away, or Windows
+/// refused the refocus. stderr is useless here - the release binary is
+/// GUI-subsystem - so this goes to a file next to the config. Window identity
+/// and outcome only; the transcript is never written.
+fn log_paste_decision(reason: &str) {
+    use std::io::Write;
+    let Some(dir) = dirs::config_dir() else { return };
+    let path = dir.join("com.typr.app").join("paste.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[paste] {}", reason);
+    }
+}
+
 /// Focus-guard decision: does the current foreground window identity match
 /// the captured paste target? This is pure - it takes the current
 /// foreground window's identity as a plain value (however the caller
@@ -107,10 +124,30 @@ pub fn paste_text(text: &str, target: Option<PasteTarget>) -> PasteOutcome {
     // activation changes, UAC/secure-desktop switches and lock/unlock - used
     // to skip this check entirely and paste wherever focus happened to be,
     // which is precisely the wrong-window bug this guard exists to stop.
-    let confirmed = matches!(
-        target,
-        Some(t) if windows_impl::is_target_foreground(t) || windows_impl::refocus(t)
-    );
+    // Say WHICH branch decided the outcome. A fallback that cannot explain
+    // itself is undiagnosable from outside: the user sees "Copied, press
+    // Ctrl+V" with no way to tell whether no window was captured, they
+    // genuinely switched away, or the OS refused the refocus. Window identity
+    // only - never the transcript.
+    let confirmed = match target {
+        None => {
+            log_paste_decision("no target captured at stop; refusing to guess a window");
+            false
+        }
+        Some(t) => {
+            if windows_impl::is_target_foreground(t) {
+                true
+            } else {
+                let regained = windows_impl::refocus(t);
+                log_paste_decision(if regained {
+                    "target lost focus by paste time; refocus succeeded, pasting"
+                } else {
+                    "target lost focus by paste time; refocus REFUSED by the OS, falling back to clipboard"
+                });
+                regained
+            }
+        }
+    };
     if !confirmed {
         windows_impl::write_transcript_clipboard(text);
         return PasteOutcome::Fallback;
