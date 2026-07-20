@@ -44,13 +44,20 @@
         --pill-hover-scale: 1.12;
         --pill-hover-scale-peak: 1.19;
 
-        /* Recording pill: stays RED (the mic-is-live cue), just pushed
-           toward a crisper neon treatment - brighter edge, stronger glow. */
-        --pill-recording-bg: rgba(120, 18, 22, 0.92);
-        --pill-recording-bg-hover: rgba(140, 22, 26, 0.97);
-        --pill-recording-border: rgba(255, 72, 77, 0.95);
-        --pill-recording-glow: rgba(255, 72, 77, 0.65);
-        --pill-recording-glow-hover: rgba(229, 72, 77, 0.7);
+        /* Recording pill: DEEP PURPLE, not red (TJ 2026-07-20). He asked for a
+           purple dock that goes "red or neon when recording" and a deep-purple
+           waveform. Those two cannot both be true on a red body: measured
+           against the old red bg, deep purple #6a0dad is 1.33:1 and deep violet
+           #7c3aed is 2.16:1, i.e. invisible (4.5:1 is the floor). Taking the
+           "or neon" branch instead - the body stays deep purple and the LIVE cue
+           is carried by the neon violet edge, glow and trace, which measures
+           4.80:1 against this bg. Recording is still unmistakable at a glance,
+           just violet-hot rather than red. */
+        --pill-recording-bg: rgba(24, 10, 44, 0.94);
+        --pill-recording-bg-hover: rgba(30, 13, 54, 0.97);
+        --pill-recording-border: rgba(177, 77, 255, 0.95);
+        --pill-recording-glow: rgba(177, 77, 255, 0.65);
+        --pill-recording-glow-hover: rgba(177, 77, 255, 0.7);
 
         /* Waveform stroke: single flat color (TJ 2026-07-20 - "why is it
            gradient? It should just be one color for the wavelength"). Cyan
@@ -59,8 +66,8 @@
            --pill-recording-bg, well above the 4.5:1 target) - magenta/violet
            against red was explicitly ruled out for reading poorly. One
            token, so changing the wave color later is a one-line edit. */
-        --wave-stroke: var(--color-neon-cyan);
-        --wave-glow-color: rgba(46, 230, 255, 0.6);
+        --wave-stroke: var(--color-neon-violet);
+        --wave-glow-color: rgba(177, 77, 255, 0.6);
 
         /* App mark inside the idle pill. Mirrors --accent / --logo-color in
            src/style.css (#f23df5) EXACTLY, so the floating pill, the settings
@@ -502,37 +509,32 @@
       // canvas redraw is a pixel operation, never a layout-affecting CSS
       // property, so it is as safe as the old transform: scaleY approach.
       //
-      // Third attempt (see tasks/lessons.md history): the first two builds
-      // failed because (1) a modulated-in-place sine never travelled and
-      // (2) a coarse 64-sample ring buffer snapped to a literal flat line at
-      // silence with near-invisible amplitude. This build draws a dense,
-      // continuously-travelling multi-sine surface spanning the FULL pill
-      // width at all times - there is no "silence" visual state, only a
-      // lower-amplitude/slower idle wave. Phase is derived directly from
-      // performance.now() (never accumulated frame-to-frame), so the wave is
-      // correct immediately after any rAF pause caused by window occlusion.
+      // Fourth attempt (see tasks/lessons.md). Attempts 1-3 each failed the
+      // same requirement from a different direction: (1) a modulated-in-place
+      // sine never travelled; (2) a coarse ring buffer DID flatline at
+      // silence, but the speaking state was near-invisible; (3) over-corrected
+      // into a permanent IDLE_AMP floor that could never read as flat - which
+      // is the thing TJ has now rejected repeatedly ("it needs to be a
+      // straight line", "make it a heart rate monitor").
+      //
+      // This build is an ECG/oscilloscope trace, which satisfies BOTH halves
+      // at once instead of trading one against the other: a scrolling buffer
+      // of REAL mic samples, hard-gated to exactly 0 below SILENCE_GATE (a
+      // dead-flat baseline, immune to mic self-noise jitter) and deflecting to
+      // full pill height on speech (unmistakable - fixes attempt 2's
+      // invisibility). Scroll is dt-driven from performance.now() deltas, so
+      // it stays correct immediately after any rAF pause from window
+      // occlusion, and never accumulates drift.
+      //
+      // Do NOT reintroduce an idle amplitude floor. "Flat" must mean flat.
       (() => {
-        const IDLE_AMP = 0.22;      // idle amplitude floor as a fraction of max - never drops below this, so it never reads as flat
-        const PEAK_FLOOR = 0.02;    // adaptive-peak floor - keeps quiet-room mic noise from being amplified into fake motion
-        const PEAK_RELEASE_MS = 450; // TJ 2026-07-20: "it doesn't return back to normal" - was 3000ms (seconds-scale drift after
-                                     // speech stopped); tightened to settle to idle in ~400-600ms and then hold steady
-        const LEVEL_CURVE = 0.42;   // exponent <1 = aggressive early rise, so quiet speech still moves the wave a lot
-        const CYCLES_IDLE = 3.4;    // wavelengths visible across the pill at rest (spec: at least 3-4)
-        const CYCLES_MAX = 14;      // TJ 2026-07-20: "pitch needs to change a lot more, a lot higher" - was 6.5 (< 2x range,
-                                     // read as barely changing); now a 4x range so loud speech is unmistakably tighter
-        const PX_PER_SAMPLE = 2;    // ~1 point per 2 device pixels, per spec
-        const TRAVEL_SPEED = 1.35;  // rad/s base travel speed of the dominant component
-        const GLOW_BLUR = 8;        // strengthened neon glow (was 6) for the retheme
-
-        // Three layered sine components at different spatial-frequency
-        // multipliers, phase speeds (some negative = opposite drift), and
-        // weights, summed and normalised - reads as organic, not a pure tone.
-        const LAYERS = [
-          { freqMul: 1.0, speed: 1.0, weight: 0.5, phase: 0 },
-          { freqMul: 1.7, speed: -0.65, weight: 0.3, phase: 1.9 },
-          { freqMul: 2.6, speed: 1.4, weight: 0.2, phase: 4.1 },
-        ];
-        const LAYER_WEIGHT_SUM = LAYERS.reduce((s, l) => s + l.weight, 0);
+        const SILENCE_GATE = 0.035;  // curved level at/below this is TRUE silence -> exactly 0 -> a straight line
+        const PEAK_FLOOR = 0.02;     // adaptive-peak floor - keeps quiet-room mic noise from being amplified into fake motion
+        const PEAK_RELEASE_MS = 450; // TJ 2026-07-20: "it doesn't return back to normal" - settle to baseline in ~400-600ms, then hold
+        const LEVEL_CURVE = 0.42;    // exponent <1 = aggressive early rise, so quiet speech still deflects the trace a lot
+        const PX_PER_SAMPLE = 2;     // ~1 sample per 2 CSS px of pill width
+        const SCROLL_PX_PER_S = 96;  // trace travel speed, left-scrolling like a real ECG strip
+        const UNDERSHOOT = 0.3;      // fraction of each deflection drawn below the baseline - reads as a heartbeat, not a bar chart
 
         const mic = document.getElementById('mic');
         const canvas = document.querySelector('.state-listening canvas.waveform');
@@ -561,6 +563,27 @@
         let rafId = 0;
         let lastNow = 0;
 
+        // ECG strip: one deflection magnitude (0..1) per sample column, oldest
+        // at index 0 (left edge). Zero-filled, so a fresh start and a silent
+        // room both render as an exactly straight line rather than as noise.
+        const SAMPLE_COUNT = Math.max(48, Math.ceil(CSS_W / PX_PER_SAMPLE)) + 1;
+        const samples = new Float32Array(SAMPLE_COUNT);
+        let sampleCarry = 0;  // fractional samples owed from the last frame - keeps scroll speed dt-exact
+        let lastDrawNow = 0;  // timestamp of the previous drawFrame, for dt-exact scrolling
+
+        // Shift the strip left by n columns and write the current deflection
+        // into the newest ones. Separate from drawing so the test harness can
+        // drive it deterministically.
+        const pushSamples = (n, value) => {
+          if (n <= 0) return;
+          if (n >= SAMPLE_COUNT) {
+            samples.fill(value);
+            return;
+          }
+          samples.copyWithin(0, n);
+          samples.fill(value, SAMPLE_COUNT - n);
+        };
+
         // Single flat stroke color (TJ 2026-07-20: "why is it gradient? It
         // should just be one color for the wavelength"). Never a literal
         // here - read from the :root custom property (--wave-stroke) so the
@@ -574,15 +597,11 @@
         const strokeColor = cssVar('--wave-stroke', '#2ee6ff');
         const glowColor = cssVar('--wave-glow-color', 'rgba(46, 230, 255, 0.6)');
 
-        const waveY = (x, now, amp, cycles) => {
-          const k = (cycles * 2 * Math.PI) / CSS_W;
-          const t = now / 1000;
-          let sum = 0;
-          for (const layer of LAYERS) {
-            sum += layer.weight * Math.sin(x * k * layer.freqMul + layer.phase + t * TRAVEL_SPEED * layer.speed);
-          }
-          return (sum / LAYER_WEIGHT_SUM) * amp;
-        };
+        // Deflection for one column. Below the gate this returns EXACTLY 0 so
+        // the trace is a true straight line at silence - not a small residual
+        // wobble from mic self-noise, which is what "it's not a straight line"
+        // has meant every time.
+        const deflection = (curved) => (curved <= SILENCE_GATE ? 0 : (curved - SILENCE_GATE) / (1 - SILENCE_GATE));
 
         // Turns a raw 0..1-ish RMS level into the normalized 0..1 "curved"
         // drive value used for both amplitude and wavelength - a single
@@ -610,8 +629,17 @@
           const ampScale = mid * 0.86;
 
           const curved = levelToCurve(lvl);
-          const amp = IDLE_AMP + (1 - IDLE_AMP) * curved;
-          const cycles = CYCLES_IDLE + (CYCLES_MAX - CYCLES_IDLE) * curved;
+          const d = deflection(curved);
+
+          // Advance the strip by wall-clock time, not by frame count, so the
+          // scroll speed is identical at 30fps, 60fps, 144fps, and after an
+          // rAF pause. Fractional columns carry over instead of being lost.
+          const dtMs = lastDrawNow ? Math.min(now - lastDrawNow, 250) : 0;
+          lastDrawNow = now;
+          const advance = (dtMs / 1000) * SCROLL_PX_PER_S / PX_PER_SAMPLE + sampleCarry;
+          const whole = Math.floor(advance);
+          sampleCarry = advance - whole;
+          if (!reduceMotion) pushSamples(whole, d);
 
           ctx.clearRect(0, 0, CSS_W, CSS_H);
           ctx.lineWidth = 2.4;
@@ -623,30 +651,50 @@
           // it as one twice ("why is it gradient?", then "still a gradient
           // color and not a solid deep color"). A solid line means solid: one
           // colour, hard edges, no halo. Do not reintroduce shadowBlur here.
-          ctx.strokeStyle = strokeColor;
-          ctx.beginPath();
+          // BARS, not a stroked trace (TJ 2026-07-20, final call: "use the sound
+          // bars that adjust height based on voice sensitivity"). The ECG line
+          // and the travelling sine before it were both rejected on look. A bar
+          // meter is what the original US-003 shipped and what he wants back.
+          //
+          // He also asked for "a sound frequency" look. Be honest about what is
+          // actually available: audio.rs emits ONE RMS amplitude float, not an
+          // FFT, so there are no real frequency bands to show. Faking bands from
+          // a single amplitude would be invented telemetry. Instead each bar
+          // reads a different column of the real sample history, so the meter
+          // shows amplitude over a short rolling window - genuinely derived,
+          // and it reads like a level meter rather than a bar chart of nothing.
+          ctx.fillStyle = strokeColor;
 
-          if (reduceMotion) {
-            // Static/minimal-motion fallback: draw one still frame at the
-            // idle wavelength/amplitude, no travel - level still nudges the
-            // amplitude a little so it is not completely inert.
-            const points = Math.max(24, Math.ceil(CSS_W / (PX_PER_SAMPLE * 2)));
-            const staticAmp = IDLE_AMP + (1 - IDLE_AMP) * curved * 0.4;
-            for (let i = 0; i <= points; i++) {
-              const x = (i / points) * CSS_W;
-              const y = mid - waveY(x, 0, staticAmp * ampScale, CYCLES_IDLE);
-              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
-          } else {
-            const points = Math.max(48, Math.ceil(CSS_W / PX_PER_SAMPLE));
-            for (let i = 0; i <= points; i++) {
-              const x = (i / points) * CSS_W;
-              const y = mid - waveY(x, now, amp * ampScale, cycles);
-              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
+          const BAR_COUNT = 14;
+          const slotW = CSS_W / BAR_COUNT;
+          const barW = slotW * 0.52;              // gap between bars is the rest
+          const radius = Math.min(barW / 2, 2.2);
+          const MIN_H = 2;                        // silence floor: a row of dots, still a flat "nothing happening" read
+
+          for (let b = 0; b < BAR_COUNT; b++) {
+            // Sample the history strip at this bar's position. Bar 0 is the
+            // oldest column, the last bar is the newest, so activity travels
+            // across the meter instead of every bar pumping in unison.
+            const si = reduceMotion
+              ? SAMPLE_COUNT - 1
+              : Math.min(SAMPLE_COUNT - 1, Math.round((b / (BAR_COUNT - 1)) * (SAMPLE_COUNT - 1)));
+            const v = reduceMotion ? d : samples[si];
+
+            // Centre bars taller than the edges, so a uniform level still reads
+            // as a voice meter rather than a flat block. Weight is positional
+            // and fixed - never randomised per frame, which would be motion the
+            // mic did not cause.
+            const t = (b / (BAR_COUNT - 1)) * 2 - 1;          // -1..1 across the meter
+            const weight = 0.55 + 0.45 * Math.cos(t * Math.PI / 2);
+
+            const h = Math.max(MIN_H, v * weight * ampScale * 2);
+            const x = b * slotW + (slotW - barW) / 2;
+            const y = mid - h / 2;
+
+            ctx.beginPath();
+            ctx.roundRect(x, y, barW, h, radius);
+            ctx.fill();
           }
-          ctx.stroke();
-          ctx.shadowBlur = 0;
         };
 
         const frame = (now) => {
@@ -678,6 +726,9 @@
           if (rafId) return;
           level = 0;
           lastNow = 0;
+          lastDrawNow = 0;
+          sampleCarry = 0;
+          samples.fill(0); // open on a straight line, never on stale peaks from the previous recording
           peakEnv = PEAK_FLOOR;
           rafId = requestAnimationFrame(frame);
         };
@@ -686,6 +737,9 @@
           if (!rafId) return;
           cancelAnimationFrame(rafId);
           rafId = 0;
+          lastDrawNow = 0;
+          sampleCarry = 0;
+          samples.fill(0);
           peakEnv = PEAK_FLOOR;
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
