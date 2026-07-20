@@ -249,12 +249,34 @@ function setInteractionSounds(enabled: boolean) {
   currentSettings.interactionSounds = enabled;
   soundsSwitch.classList.toggle("active", enabled);
   soundsSwitch.setAttribute("aria-checked", String(enabled));
+  warnIfNoRecordingFeedback();
 }
 
 function setOverlayVisible(enabled: boolean) {
   currentSettings.overlayVisible = enabled;
   overlaySwitch.classList.toggle("active", enabled);
   overlaySwitch.setAttribute("aria-checked", String(enabled));
+  warnIfNoRecordingFeedback();
+}
+
+/// The overlay and the start/stop sounds are the only two signals that the
+/// microphone is live. They are independent settings, so both can be off - and
+/// then pressing the hotkey opens the mic with no indication whatsoever. For an
+/// always-listening dictation tool that is a trust problem, not a preference,
+/// so say it plainly rather than silently allowing a silent hot mic.
+/// Not blocked: it is the user's machine and their call. Just never a surprise.
+function warnIfNoRecordingFeedback() {
+  const silent =
+    currentSettings.overlayVisible === false && currentSettings.interactionSounds === false;
+  if (silent) {
+    showAppNotice(
+      "With both the overlay and interaction sounds off, nothing will show that Typr is recording.",
+      "warn"
+    );
+  } else if (appNotice.dataset.kind === "warn") {
+    // Only clear our own warning, never an error someone else surfaced.
+    clearAppNotice();
+  }
 }
 
 // Per-model cards: downloaded-vs-available state derived ONLY from the existing
@@ -312,14 +334,16 @@ async function renderModelCards() {
 
 /// Window-level failure message. Kept to one line of plain language: the
 /// detail belongs in the log, not on screen.
-function showAppNotice(message: string) {
+function showAppNotice(message: string, kind: "error" | "warn" = "error") {
   appNotice.textContent = message;
+  appNotice.dataset.kind = kind;
   appNotice.hidden = false;
 }
 
 function clearAppNotice() {
   appNotice.hidden = true;
   appNotice.textContent = "";
+  delete appNotice.dataset.kind;
 }
 
 async function saveSettings() {

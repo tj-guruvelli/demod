@@ -297,6 +297,13 @@ body {
   line-height: 1.4;
 }
 
+/* Advisory rather than failure: amber, not red. Used when a setting combination
+   is legal but has a consequence worth naming (e.g. no recording indicator). */
+#app-notice[data-kind="warn"] {
+  border-color: rgba(224, 195, 65, 0.35);
+  background: rgba(224, 195, 65, 0.08);
+}
+
 #app-notice[hidden] {
   display: none;
 }
