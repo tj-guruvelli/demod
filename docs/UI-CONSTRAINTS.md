@@ -76,7 +76,15 @@ absent and the module aborts at load), so behavioral checks need the real app.
 A control that updates the DOM but not the cached settings object silently stops
 persisting. This is the known footgun in `src/main.ts`.
 
-**14. Do not add a Tauri command without a caller, or an invoke without a command.**
+**14. No colour literal outside `:root`.**
+The stylesheet defined 24 tokens and then restated colours as literals in 18 places —
+status colours duplicated as raw rgba inside glow shadows, white overlays scattered
+across backgrounds, borders and rings. Two sources of truth for one palette is how a
+token and its tints drift apart. Status tints use `rgba(var(--x-rgb), a)`; white
+overlays are named by role, so a background and a border never share a token by
+accident. `grep` for a hex or `rgba(` digit outside `:root` should return nothing.
+
+**15. Do not add a Tauri command without a caller, or an invoke without a command.**
 Two commands shipped dead. The four `menu_*` commands are bound indirectly through
 `data-action`, so grepping for `invoke('menu_quit')` finds nothing — see
 [ARCHITECTURE.md](./ARCHITECTURE.md) for the full contract inventory.
