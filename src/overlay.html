@@ -7,6 +7,13 @@
          The OS window never resizes; the pill morphs entirely in here.
          All states are pre-mounted layers crossfaded with opacity + transform
          ONLY (GPU compositable - no width/height/layout animation). */
+      /* This webview is standalone and does not load src/style.css, so the one
+         brand token it needs is declared here. Keep in sync with --accent in
+         style.css, which comes from the template remote. */
+      :root {
+        --accent: #5e6ad2;
+      }
+
       * { margin: 0; padding: 0; }
       html, body {
         background: transparent;
@@ -73,14 +80,30 @@
          hover so it reads as clickable (transform/opacity only). Hover
          emphasis (US-009): fully opaque + slight scale-up, still
          transform/opacity only, composing with the centering transform. */
+      /* Idle is the app's dock icon: the Typr mark, not a blank lozenge. Same
+         logo as the settings sidebar (index.html .app-icon) so the floating
+         pill and the window read as one product. Kept small and dim so it
+         stays unobtrusive on top of other apps, and it brightens on hover
+         using transform/opacity only - never layout - so the fixed-size
+         overlay window is untouched. */
       .state-idle {
-        width: 64px;
-        height: 12px;
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+      }
+      .state-idle .logo {
+        width: 18px;
+        height: 18px;
+        color: var(--accent);
+        opacity: 0.85;
       }
       #mic[data-state="idle"] .state-idle:hover {
         opacity: 1;
         background: rgba(20, 20, 20, 0.95);
-        transform: translate(-50%, -50%) scaleX(1.15) scaleY(1.2);
+        transform: translate(-50%, -50%) scale(1.12);
+      }
+      #mic[data-state="idle"] .state-idle:hover .logo {
+        opacity: 1;
       }
 
       /* Strengthened hover for the active (non-idle) layers: fully opaque,
@@ -259,7 +282,12 @@
   </head>
   <body>
     <div id="mic" data-state="idle">
-      <div class="layer state-idle" data-tauri-drag-region></div>
+      <div class="layer state-idle" data-tauri-drag-region>
+        <svg class="logo" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect width="18" height="18" rx="4" fill="currentColor" opacity="0.18"/>
+          <path d="M5 6.5h8M5 9h5.5M5 11.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div class="layer state-listening" data-tauri-drag-region>
         <div class="bar"></div>
         <div class="bar"></div>
