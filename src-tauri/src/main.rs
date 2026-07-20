@@ -14,6 +14,7 @@ use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
 
 mod pill_hittest;
+mod sounds;
 
 /// Fixed-size transparent overlay host (Wispr "Status" window pattern),
 /// logical px. The OS window is never resized; the pill morphs inside it.
@@ -97,20 +98,34 @@ fn save_settings(
     state: State<AppState>,
     mut settings: Settings,
 ) -> Result<(), String> {
-    let (old_engine, old_model) = {
+    let (old_engine, old_model, old_overlay_visible) = {
         let s = state.settings.lock().unwrap();
         // The overlay position is owned by the drag handler (pill_hittest),
         // not the settings UI; re-assert the live values so a stale frontend
         // snapshot can't revert a dragged pill.
         settings.overlay_x = s.overlay_x;
         settings.overlay_y = s.overlay_y;
-        (s.engine.clone(), s.whisper_model.clone())
+        (s.engine.clone(), s.whisper_model.clone(), s.overlay_visible)
     };
     settings.save(&state.app_dir)?;
     let engine_changed = old_engine != settings.engine || old_model != settings.whisper_model;
+    let overlay_visible_changed = old_overlay_visible != settings.overlay_visible;
+    let new_overlay_visible = settings.overlay_visible;
     *state.settings.lock().unwrap() = settings;
     if engine_changed {
         respawn_whisper_server(&app, state.inner());
+    }
+    if overlay_visible_changed {
+        if let Some(overlay) = app.get_webview_window("overlay") {
+            let result = if new_overlay_visible {
+                overlay.show()
+            } else {
+                overlay.hide()
+            };
+            if let Err(e) = result {
+                eprintln!("[Typr] Failed to toggle overlay visibility: {}", e);
+            }
+        }
     }
     Ok(())
 }
@@ -185,6 +200,7 @@ fn main() {
     let settings = Settings::load(&app_dir);
     let initial_hotkey = settings.hotkey.clone();
     let saved_overlay_pos = (settings.overlay_x, settings.overlay_y);
+    let initial_overlay_visible = settings.overlay_visible;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -255,6 +271,12 @@ fn main() {
                     // Click-through by default; the WH_MOUSE_LL hook flips
                     // interactivity only while the cursor is over the pill.
                     pill_hittest::install(app.handle(), &overlay);
+
+                    if !initial_overlay_visible {
+                        if let Err(e) = overlay.hide() {
+                            eprintln!("[Typr] Failed to hide overlay: {}", e);
+                        }
+                    }
                 }
                 Err(e) => eprintln!("[Typr] Failed to create overlay: {}", e),
             }
@@ -277,16 +299,42 @@ fn main() {
                     println!("[Typr] Hotkey event: {:?} state={:?}", shortcut, event.state);
                     let handle = handle.clone();
                     let state = handle.state::<AppState>();
-                    let mode = state.settings.lock().unwrap().recording_mode.clone();
+                    let (mode, interaction_sounds) = {
+                        let s = state.settings.lock().unwrap();
+                        (s.recording_mode.clone(), s.interaction_sounds)
+                    };
                     println!("[Typr] Recording mode: {}", mode);
 
                     match event.state {
                         ShortcutState::Pressed => {
+                            // US-004: on Pressed, react instantly — set overlay
+                            // state + fire the start ping synchronously, BEFORE
+                            // spawning the async task that does the actual
+                            // (heavier) capture start. SND_ASYNC returns
+                            // immediately so this adds no latency of its own.
+                            let current = handle.state::<AppState>().recorder.get_state();
+                            let will_start = match mode.as_str() {
+                                "toggle" => current == RecordingState::Ready,
+                                "push-to-talk" => current == RecordingState::Ready,
+                                _ => false,
+                            };
+                            if will_start {
+                                if let Some(overlay) = handle.get_webview_window("overlay") {
+                                    let _ = overlay.eval(
+                                        "document.getElementById('mic').dataset.state = 'listening';",
+                                    );
+                                }
+                                sounds::play_start(interaction_sounds);
+                            }
+
                             tauri::async_runtime::spawn(async move {
                                 let state = handle.state::<AppState>();
                                 match mode.as_str() {
                                     "toggle" => {
                                         println!("[Typr] Toggle mode: calling do_toggle_recording");
+                                        if state.recorder.get_state() == RecordingState::Recording {
+                                            sounds::play_stop(interaction_sounds);
+                                        }
                                         match do_toggle_recording(&handle, state.inner()).await {
                                             Ok(result) => println!("[Typr] Toggle result: {}", result),
                                             Err(e) => eprintln!("[Typr] Toggle error: {}", e),
@@ -318,6 +366,9 @@ fn main() {
                                     let state = handle.state::<AppState>();
                                     let current = state.recorder.get_state();
                                     if current == RecordingState::Recording {
+                                        // Finalize/stop point — ping before the
+                                        // (heavier) transcription is kicked off.
+                                        sounds::play_stop(interaction_sounds);
                                         let settings =
                                             state.settings.lock().unwrap().clone();
                                         match state.recorder.stop_and_transcribe(

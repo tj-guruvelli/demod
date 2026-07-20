@@ -21,6 +21,19 @@ pub struct Settings {
     pub overlay_x: Option<i32>,
     #[serde(rename = "overlayY", default)]
     pub overlay_y: Option<i32>,
+    /// Whether the start/stop pings play on the hotkey path (US-004).
+    /// Frontend-owned; round-trips normally through save_settings.
+    #[serde(rename = "interactionSounds", default = "default_true")]
+    pub interaction_sounds: bool,
+    /// Whether the overlay pill window is shown at all (US-004/US-010).
+    /// Frontend-owned; main.rs shows/hides the overlay window when this
+    /// changes in save_settings.
+    #[serde(rename = "overlayVisible", default = "default_true")]
+    pub overlay_visible: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -34,6 +47,8 @@ impl Default for Settings {
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             overlay_x: None,
             overlay_y: None,
+            interaction_sounds: true,
+            overlay_visible: true,
         }
     }
 }
@@ -117,6 +132,43 @@ mod tests {
         assert_eq!(settings.overlay_x, None);
         assert_eq!(settings.overlay_y, None);
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_load_pre_us004_config_gives_true_defaults() {
+        // Config written before US-004 has no interactionSounds/overlayVisible keys.
+        let dir = temp_dir().join("typr_test_no_sounds_visible");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config.json"),
+            r#"{"microphone":"default","engine":"local","whisperModel":"small","groqApiKey":"","recordingMode":"toggle","hotkey":"CmdOrCtrl+Shift+Space"}"#,
+        )
+        .unwrap();
+
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.interaction_sounds, true);
+        assert_eq!(settings.overlay_visible, true);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_interaction_sounds_and_overlay_visible_roundtrip() {
+        let dir = temp_dir().join("typr_test_sounds_visible_roundtrip");
+        let _ = fs::remove_dir_all(&dir);
+
+        let mut settings = Settings::default();
+        settings.interaction_sounds = false;
+        settings.overlay_visible = false;
+
+        settings.save(&dir).unwrap();
+        let loaded = Settings::load(&dir);
+
+        assert_eq!(loaded.interaction_sounds, false);
+        assert_eq!(loaded.overlay_visible, false);
 
         let _ = fs::remove_dir_all(&dir);
     }
