@@ -249,14 +249,27 @@ async function renderModelCards() {
   const rows = await Promise.all(
     MODEL_CATALOG.map(async (m) => ({
       ...m,
-      downloaded: await invoke<boolean>("check_model_downloaded", { modelSize: m.id }),
+      // Caught per model, never fatal. The catalog (name, size, speed) is
+      // local and must still render if the backend check fails; previously a
+      // single rejection failed the whole Promise.all, the innerHTML
+      // assignment below never ran, and the Voice Model card rendered as an
+      // empty box with nothing explaining why. null means "we could not
+      // determine this", which is not the same as "not downloaded".
+      downloaded: await invoke<boolean>("check_model_downloaded", { modelSize: m.id }).catch(
+        () => null
+      ),
     }))
   );
 
   modelList.innerHTML = rows
     .map((m) => {
       const isActive = m.id === currentSettings.whisperModel;
-      const statusHtml = m.downloaded
+      const statusHtml =
+        m.downloaded === null
+          ? // Status unreadable: say so rather than offering an action whose
+            // outcome we cannot predict. A missing affordance beats a wrong one.
+            `<span class="gate-badge">Status unavailable</span>`
+          : m.downloaded
         ? `<span class="gate-badge downloaded">Downloaded</span><button type="button" class="btn-primary" data-use="${m.id}" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Use"}</button>`
         : `<button type="button" class="btn-primary" data-download="${m.id}" ${activeDownloadId ? "disabled" : ""}>Download</button>`;
       return `
@@ -271,7 +284,16 @@ async function renderModelCards() {
     .join("");
 
   const activeRow = rows.find((r) => r.id === currentSettings.whisperModel);
-  footerModel.textContent = `Model: ${currentSettings.whisperModel}${activeRow?.downloaded ? "" : " (not downloaded)"}`;
+  // Three states, not two: downloaded, definitely not downloaded, and unknown.
+  // Reporting "(not downloaded)" when the check failed would assert something
+  // we did not actually learn.
+  const suffix =
+    activeRow?.downloaded === null || activeRow === undefined
+      ? " (status unknown)"
+      : activeRow.downloaded
+        ? ""
+        : " (not downloaded)";
+  footerModel.textContent = `Model: ${currentSettings.whisperModel}${suffix}`;
 }
 
 async function saveSettings() {
