@@ -37,13 +37,18 @@ phrase so a misplaced paste is unmissable.
 11. Quick-menu paste-last (US-009): dictate, then menu > Paste last transcript into
     a fresh Notepad. Lands correctly.
 12. Repeat #2 in a real messaging app (the original bug's blast radius). NO paste.
-13. RECOVERY AFTER A FAILED DICTATION (regression test for the stuck-state bug):
+13. [AUTOMATED - no longer needs doing by hand] RECOVERY AFTER A FAILED DICTATION:
     force a transcription failure - easiest is Settings > Models > Groq Cloud with
     the API key field emptied - then dictate once. EXPECTED: the pill shows a short
     failure message rather than spinning forever, AND the very next hotkey press
     starts a new recording normally. Before the fix, one failure left the recorder
     stuck in Transcribing and every later press was rejected silently, so the app
-    had to be restarted. Switch the engine back to Local afterwards.
+    had to be restarted.
+    Covered by `typr-e2e/recovery-check.mjs` (8/8 passing): it forces a real
+    failure by selecting the local engine with an undownloaded model - never
+    touching the Groq key - then asserts the state returns to Ready AND that a
+    new recording can still start, and restores the original settings
+    afterwards. Re-run it after any change to stop_and_transcribe.
 14. Settings save failure is reported: not easily forced by hand; if you ever see a
     setting revert after reopening Settings, the notice banner should have said so.
     Worth watching for during the dogfood day rather than staging.
@@ -61,3 +66,24 @@ Full deploy/restore commands (PowerShell) live there; summary:
   within 10s of launch.
 - If any of scenarios 2, 3, 5, 6, or 12 fails: restore `.bak` IMMEDIATELY, file the
   failure, do not "try one more time" on the daily driver.
+
+## Which of these actually need a human, and in what order
+
+Scenario 13 is automated (see above). Everything else here needs a person,
+because CDP cannot synthesize a global hotkey, real speech, or a genuine
+foreground-window change - and those three ARE the feature.
+
+Do them in this order; the first two carry almost all the risk:
+
+1. **Scenario 2** - the historical bug itself. Dictate, Alt-Tab while
+   "Transcribing" shows, confirm NOTHING pastes into the other window.
+2. **Scenario 3** - the same thing but with Typr's OWN settings window stealing
+   focus. Found by an adversarial design review; it is the one case where the
+   app can victimise itself.
+3. Scenarios 5 and 6 - the push-to-talk and tap-toggle variants of 2.
+4. Scenario 12 - repeat 2 in a real messaging app, the original blast radius.
+5. The rest (1, 4, 7-11, 14) are lower risk and can be done as you use the app
+   normally during the dogfood day.
+
+If 2, 3, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do
+not retry on the daily driver.
