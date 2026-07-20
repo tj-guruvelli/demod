@@ -101,10 +101,35 @@ AUTOMATED and passing: 3 (focus guard, focus-guard-check.mjs 7/7), 5 and 6
 8/8). Scenario 2 shares scenario 3's code path - a foreign foreground window
 fails the hwnd+pid check and falls back - so it is covered in mechanism.
 
-What is left is genuinely observational rather than a discrete test: scenarios
-1, 4, 7-12 and 14, all lower risk, best confirmed simply by using the app for a
-day with the .bak in place. Scenario 12 in particular (a real messaging app) is
-the same code path as 2 and 3, just a different target application.
+Scenario 7 (Esc cancel) is also automated - paste-scenarios.mjs, which asserts a
+recording starts, Esc discards it, nothing is pasted anywhere, and the app
+returns to Ready.
+
+WHY THE PASTE-DESTINATION SCENARIOS (1, 4, 8, 10, 11, 12) CANNOT BE AUTOMATED
+============================================================================
+Not for want of trying, and the reason is an OS rule rather than a missing
+trick. Asserting a DESTINATION requires the harness to own the foreground
+window at the moment recording stops, because that is what the guard captures.
+Windows blocks SetForegroundWindow (what AppActivate uses) for any process that
+is not already foreground. It works when run interactively from a focused
+shell, and does not stick when driven from a background Node process.
+
+That was established the only way that cannot be confounded: the paste target
+reports its OWN focus state, so no second process is involved. It reports
+focused=False at stop, every time. paste-scenarios.mjs therefore SKIPS those
+checks explicitly rather than failing them.
+
+Three earlier attempts each produced a confident wrong conclusion from a broken
+probe - a crashed $pid script, an execSync returning '' that was read as
+evidence, and a stderr channel that is dead in a GUI-subsystem binary. If you
+pick this up later, instrument first and distrust any null result.
+
+What a human still needs to confirm, and it is genuinely quick: dictate one
+sentence into an ordinary editor and watch where it lands (scenario 1). If it
+pastes, the feature works end to end. If the pill says "Copied, press Ctrl+V",
+read com.typr.app/paste.log - it now names which branch fired and why. Then 2,
+4, 8, 10, 11 and 12 are variations of that same check with a different target
+or timing, and 9 needs an elevated window (UAC, so out of reach either way).
 
 If 2, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do not
 retry on the daily driver.
