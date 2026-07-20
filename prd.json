@@ -56,7 +56,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "sounds.rs (new): start/stop pings embedded via include_bytes! ('static), played with winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT \u2014 zero hotkey latency. Pressed handler does state-set + play_start synchronously BEFORE spawning the capture async task; play_stop at both finalize points. Settings +interactionSounds/+overlayVisible (camelCase wire via serde rename, default true, compat tests). save_settings applies overlay show/hide immediately; startup honors overlay_visible."
+      "notes": "sounds.rs (new): start/stop pings embedded via include_bytes! ('static), played with winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT — zero hotkey latency. Pressed handler does state-set + play_start synchronously BEFORE spawning the capture async task; play_stop at both finalize points. Settings +interactionSounds/+overlayVisible (camelCase wire via serde rename, default true, compat tests). save_settings applies overlay show/hide immediately; startup honors overlay_visible."
     },
     {
       "id": "US-005",
@@ -153,6 +153,41 @@
         "All earlier stories' passes flags are true"
       ],
       "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Recording waveform: solid flat stroke, heart-rate/radar motion (no gradient, no halo)",
+      "description": "As a user, I want the recording waveform to read as a SOLID line that sweeps like a heart-rate monitor or a radar detecting for voice, not a glowing gradient sine. TJ rejected the current look twice: 'why is it gradient?' then 'the wavelength is still a gradient color and not a solid deep color and its not animated like a heart rate monitor / or a radar detecting for voice'. Root cause of the perceived gradient was ctx.shadowBlur painting a fading halo around an already-flat stroke; that has been removed, so this story is about MOTION and HUE. Replace the travelling sine in src/overlay.html with an ECG-style trace: a mostly-flat baseline punctuated by a sharp QRS-like spike whose height is driven by the live mic RMS, sweeping left-to-right with a leading edge, OR a radar sweep reading of the same signal. Keep the existing rAF-only-while-listening rule and the real audio-level event as the amplitude source - never synthesise fake activity.",
+      "acceptanceCriteria": [
+        "src/overlay.html canvas renderer draws an ECG/radar-style trace, not a continuous sine; amplitude still comes from the real 'audio-level' RMS event",
+        "ctx.shadowBlur is NOT set anywhere in the waveform renderer (a blurred halo reads as a gradient)",
+        "Stroke colour is a single flat value read from one :root custom property; no createLinearGradient, no per-segment colour variation",
+        "Measured contrast of the stroke against --pill-recording-bg is >= 4.5:1; record the measured number in the story notes",
+        "The rAF loop still runs ONLY while data-state=listening and stops on leaving it",
+        "Silence still visibly flatlines the trace",
+        "npm run build passes and cargo check passes (run unpiped, check the exit code)",
+        "cdp-smoke (typr-e2e) reports 25/25 against the freshly built exe"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Hue is NOT settled: TJ asked for a 'solid deep color' but the existing cyan was chosen for measured contrast against the red recording pill, and deep hues on red contrast poorly. Implement the motion change, keep the colour behind a single token, and surface the measured contrast so TJ can pick the final hue. Do not silently invent a hue and call it done."
+    },
+    {
+      "id": "US-013",
+      "title": "Whisper-vs-talking level indicator against the real mic threshold",
+      "description": "As a user, I want to see whether I am currently above or below the level threshold the app uses, so I know if I am whispering too quietly to be transcribed. TJ: 'if the microphone or whatever threshold number you have set for distinguishing between whispering vs talking could you display that indicator between whispering and talking. talking would be higher than the threshold number you have set.' Find the ACTUAL silence/level threshold constant already used in the codebase (audio.rs RMS handling and the overlay's silence-flatline logic) and surface it - do not invent a new number. Show a small indicator during recording that reads whispering (below threshold) vs talking (at or above), driven by the same live audio-level event.",
+      "acceptanceCriteria": [
+        "The threshold value displayed is read from the existing constant in the codebase, not a newly invented literal; cite the file and constant in the story notes",
+        "During recording the overlay shows a whispering/talking indicator that flips based on the live 'audio-level' value vs that threshold",
+        "The indicator is driven by the existing audio-level event only; no new polling loop and no second rAF loop",
+        "Indicator uses transform/opacity only so the fixed-size overlay window is untouched",
+        "If the level source is unavailable the indicator renders a neutral/unknown state rather than a fake reading",
+        "npm run build passes and cargo check passes (run unpiped, check the exit code)",
+        "cdp-smoke (typr-e2e) reports 25/25 against the freshly built exe"
+      ],
+      "priority": 13,
       "passes": false,
       "notes": ""
     }
