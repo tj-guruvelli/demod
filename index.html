@@ -197,6 +197,11 @@
               </div>
             </div>
           </div>
+          <div class="card">
+            <div class="card-header">Text</div>
+            <!-- Rows rendered by renderToggleRows() in main.ts from TEXT_TOGGLE_CATALOG -->
+            <div id="text-toggle-list"></div>
+          </div>
         </section>
 
         <section id="section-overlay" class="content-section" role="tabpanel" aria-labelledby="tab-overlay" tabindex="0">
@@ -256,6 +261,18 @@
               </div>
             </div>
           </div>
+          <div class="card">
+            <div class="card-header">Dictionary</div>
+            <div class="setting-row setting-row-stacked">
+              <div class="setting-label">
+                <span class="label-text">Custom vocabulary</span>
+                <span class="label-hint">Names, jargon, and product terms fed to whichever engine is active as a recognition hint. This biases what the engine hears &mdash; it does not find-and-replace your finished transcript.</span>
+              </div>
+              <div class="setting-control setting-control-wide">
+                <textarea id="dictionary-textarea" rows="3" placeholder="e.g. Kubernetes, Guruvelli, TheAIAxon"></textarea>
+              </div>
+            </div>
+          </div>
           <div class="card" id="local-settings">
             <div class="card-header">Voice model</div>
             <div id="model-list"></div>
@@ -277,6 +294,15 @@
           </div>
           <div class="card hidden" id="cloud-settings">
             <div class="card-header">Cloud</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Cloud model</span>
+                <span class="label-hint">Which Groq model transcribes your audio. Turbo and the distilled English model trade accuracy for speed.</span>
+              </div>
+              <div class="setting-control">
+                <select id="cloud-model-select"></select>
+              </div>
+            </div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Groq API Key</span>

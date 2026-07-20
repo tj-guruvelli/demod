@@ -12,6 +12,7 @@
          style.css, which comes from the template remote. */
       :root {
         --accent: #5e6ad2;
+        --color-red: #e5484d;
       }
 
       * { margin: 0; padding: 0; }
@@ -90,12 +91,15 @@
         width: 30px;
         height: 30px;
         border-radius: 9px;
+        position: absolute; /* .layer already sets this; kept explicit so the
+                                hotkey tooltip below can anchor off this box */
       }
       .state-idle .logo {
         width: 18px;
         height: 18px;
-        color: var(--accent);
         opacity: 0.85;
+        /* logo is a raster PNG (real Typr mark), not a currentColor SVG
+           anymore - no color/fill styling to inherit here. */
       }
       #mic[data-state="idle"] .state-idle:hover {
         opacity: 1;
@@ -106,10 +110,42 @@
         opacity: 1;
       }
 
+      /* Hotkey hover tooltip (idle only). Purely decorative overlay - never
+         affects the pill's own width/height, so the fixed-size host window
+         and drag-region hit test are untouched. Positioned above the pill,
+         shown/hidden via opacity + transform only. Text is filled at runtime
+         from get_settings(); left empty (nothing shown) until it resolves. */
+      .idle-hotkey {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%) translateY(4px);
+        white-space: nowrap;
+        font-size: 11px;
+        color: #d8d8d8;
+        background: rgba(24, 24, 24, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        padding: 4px 8px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease-out, transform 120ms ease-out;
+      }
+      #mic[data-state="idle"] .state-idle:hover .idle-hotkey.has-hotkey {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+
       /* Strengthened hover for the active (non-idle) layers: fully opaque,
          slightly larger, transform/opacity only. */
       .layer:hover {
         background: rgba(20, 20, 20, 0.95);
+      }
+      /* Listening must stay red even on hover - overrides the generic
+         .layer:hover darkening above (loaded later, so it wins by source
+         order without needing !important). */
+      #mic[data-state="listening"] .state-listening:hover {
+        background: rgba(72, 10, 12, 0.95);
       }
       #mic[data-state="listening"] .state-listening:hover,
       #mic[data-state="processing"] .state-processing:hover,
@@ -180,20 +216,19 @@
       #mic[data-dot="off"] .status-dot,
       #mic:not([data-dot]) .status-dot { opacity: 0; }
 
-      /* Listening: waveform pill. 14 pre-created bars driven by real mic RMS
-         (the script below writes transform: scaleY each frame; no transition
-         here or it would fight the rAF loop). Flat at rest. */
+      /* Listening: red pill (mic is unmistakably live) containing a flowing
+         waveform canvas driven by real mic RMS. The canvas is redrawn each
+         rAF frame (transform/opacity-equivalent - a canvas redraw never
+         touches layout), never resized here; only its 2D content changes. */
       .state-listening {
         width: 180px;
         height: 36px;
-        gap: 3px;
+        background: rgba(72, 10, 12, 0.85);
+        border-color: rgba(229, 72, 77, 0.45);
       }
-      .state-listening .bar {
-        width: 3px;
-        height: 22px;
-        border-radius: 2px;
-        background: #fff;
-        transform: scaleY(0.08);
+      .state-listening canvas.waveform {
+        width: 160px;
+        height: 28px;
       }
 
       /* Processing: three dots pulsing with staggered opacity. */
@@ -278,31 +313,33 @@
       #quick-menu .menu-item:hover {
         background: rgba(255, 255, 255, 0.1);
       }
+
+      /* Reduced motion (US-006/waveform): fall back to a calm static bar
+         showing the current level as a fixed-width fill, no scrolling/flow.
+         The JS render loop checks this same query and skips the scroll
+         phase + redraw cadence; this class only affects the flatline look
+         drawn once. */
+      @media (prefers-reduced-motion: reduce) {
+        .state-listening canvas.waveform {
+          opacity: 0.9;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="mic" data-state="idle">
       <div class="layer state-idle" data-tauri-drag-region>
-        <svg class="logo" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-          <rect width="18" height="18" rx="4" fill="currentColor" opacity="0.18"/>
-          <path d="M5 6.5h8M5 9h5.5M5 11.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
+        <img
+          class="logo"
+          alt=""
+          aria-hidden="true"
+          data-tauri-drag-region
+          src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAANjSURBVHgB7VZBbtpQEJ0xUdVFq5AbGAXSdBXIoklUKZATND1ByAnqngBzAsgJQk6Q9ASYLkKyCXTVqhDhniBEyiKtwNP5tgH728YGlu2TwPb3/Hnvz5+Zb4B/HQgrgpr5NF8mPxOPusNF5i8lwCZVFI3vTvhRlV6bgGjA2KqyGDPO18IC6OtuGYhq4Kw4zn0Vi3f6XAtYhLy1q/N/xT9IJv8briCVV5/3M2AdD+8+w6oCOOxlUPDcQ2zws46HnZZkxyKgwsRlD01kJBIJsJ0q2ITpfpOOxW41Zo7Gc2rTAYuOOCcM2U6BJEgpIuxpXnWDXZfjyAWYrM629ZkPrITaQQKICMzLaLcUQS5Bp1pwAJOEtWhDtkkUAUG+eds/3rzpnwfIRWIq+CB+XCE1aR6Tiai5SEFRnh8rINvulXI3/QESXSKQ6iNv5ku+qiDSqJU/8Tmw4NvsfaBnzBfA5DpvUpNcYgI0JRM1ZJo8Znru04kFZK97ml1OMxjK2DqTzK4CExG6EsOO52mYSMB2eyAayowcqd7fzx313m/5nNt7bNFHDn3XaUik4WH3i1+QMmtMiF0I6A0B7/k5h70s7vnauN/fOoUl4PaPgfs4xGJnQ7YJREDtDNITcmYfjmkcW/ORcPqHq4auwkzWAgPPo/wkLoR0Ze6/Nb3vRW6gQp8IYchCq/d7b0Idc3nWmbTsPpq8mGoiARyTIhu7QJ9z0QvESUhCIYn9w0u109kwC4Vpctmlabdg8hxK3LojGtncMkTFn7XcB3Zkm9Sf1x/8A3byesk1bt0XEIG5AohQ9Qmw6Jdsg2gfx2HgDxMoMfkZzEFAgJcEwfKd7b2DrQYPOgcMJyjf6/13uZakuusQdzLyUR2GQBmKKlj7PXqYkIxePmW8e+zYdOyOJo/7fHAy9w9yBsQgEAGzkBFODVcei3lVCdoUhmHkufbPcvamd7n2PB7YyZwA4TngLxkte/1DgxiIc4PQ/mI6JrSGI2t0AQkQ+T2Qve1VWIg+04SNMaWq5kHGlIhL7plRmtry59j9XnY1Aa6IGjP7V4+i7zunIpdlnoWpkke9v5dL3D1jv4jkSESCE5YU6zSqMy4tQGC7/V0dY8oOc2DFImERjNGLp7OoqlhZgBeiBJHW18U94ePjMqT/4cVfZNp1ptgvGtYAAAAASUVORK5CYII="
+        />
+        <div class="idle-hotkey" id="idle-hotkey"></div>
       </div>
       <div class="layer state-listening" data-tauri-drag-region>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
+        <canvas class="waveform" width="320" height="56"></canvas>
         <div class="status-dot"></div>
       </div>
       <div class="layer state-processing" data-tauri-drag-region>
@@ -338,39 +375,65 @@
       // Waveform renderer: real mic RMS pushed from Rust (audio.rs emits
       // 'audio-level', a single float, at <=30Hz while recording). One rAF
       // loop runs ONLY while data-state=listening (started/stopped by a
-      // MutationObserver on the attribute - event-driven, no polling); bars
-      // animate via transform: scaleY exclusively, no layout reads.
+      // MutationObserver on the attribute - event-driven, no polling, and it
+      // is naturally paused whenever the window is hidden/occluded since
+      // requestAnimationFrame itself pauses then - the loop never assumes a
+      // frame actually painted). Drawn as a flowing red waveform on a canvas:
+      // a canvas redraw is a pixel operation, never a layout-affecting CSS
+      // property, so it is as safe as the old transform: scaleY approach.
       (() => {
-        const FLOOR = 0.08;        // honest-flatline scaleY
+        const FLOOR = 0.06;        // honest-flatline amplitude (0..1)
         const SILENCE_RMS = 0.01;  // below this counts as silence
         const SILENCE_MS = 600;    // flatline after this much continuous silence
         const GAIN = 9;            // maps typical speech RMS (~0.02-0.3) to 0..1
         const EASE = 0.35;         // per-frame smoothing toward target
+        const SCROLL_SPEED = 0.0035; // phase units per ms - the "flow" rate
+        const RED = '#e5484d';
 
         const mic = document.getElementById('mic');
-        const bars = Array.from(document.querySelectorAll('.state-listening .bar'));
-        const center = (bars.length - 1) / 2;
-        // Per-bar weighting: center-tall envelope plus a small random jitter,
-        // fixed ONCE at load. Never re-randomized per frame: all motion must
-        // come from the real level, not noise.
-        const weights = bars.map((_, i) => {
-          const envelope = 1 - 0.7 * (Math.abs(i - center) / center);
-          return envelope * (0.85 + Math.random() * 0.3);
-        });
+        const canvas = document.querySelector('.state-listening canvas.waveform');
+        const ctx = canvas ? canvas.getContext('2d') : null;
+        const reduceMotion = window.matchMedia &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        let level = 0;      // latest RMS from Rust
-        let lastLoudAt = 0; // performance.now() of last above-threshold level
-        const heights = bars.map(() => FLOOR);
+        let level = 0;       // latest RMS from Rust
+        let lastLoudAt = 0;  // performance.now() of last above-threshold level
+        let amplitude = FLOOR; // eased 0..1 amplitude
+        let phase = 0;       // scroll offset, radians
         let rafId = 0;
+        let lastNow = 0;
+
+        const draw = () => {
+          if (!ctx) return;
+          const w = canvas.width, h = canvas.height, mid = h / 2;
+          ctx.clearRect(0, 0, w, h);
+          ctx.strokeStyle = RED;
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          const points = 48;
+          for (let i = 0; i <= points; i++) {
+            const x = (i / points) * w;
+            // Two summed sine components (different frequency/phase speed)
+            // read as a flowing water surface rather than a single ripple.
+            const t = (i / points) * Math.PI * 4;
+            const y = mid
+              - Math.sin(t + phase) * amplitude * (mid * 0.75)
+              - Math.sin(t * 1.7 - phase * 1.3) * amplitude * (mid * 0.25);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        };
 
         const frame = (now) => {
+          const dt = lastNow ? now - lastNow : 16;
+          lastNow = now;
           const silent = now - lastLoudAt > SILENCE_MS;
           const norm = silent ? 0 : Math.min(1, Math.pow(level * GAIN, 0.7));
-          for (let i = 0; i < bars.length; i++) {
-            const target = Math.max(FLOOR, norm * weights[i]);
-            heights[i] += (target - heights[i]) * EASE;
-            bars[i].style.transform = 'scaleY(' + heights[i].toFixed(3) + ')';
-          }
+          const target = Math.max(FLOOR, norm);
+          amplitude += (target - amplitude) * EASE;
+          if (!reduceMotion) phase += dt * SCROLL_SPEED;
+          draw();
           rafId = requestAnimationFrame(frame);
         };
 
@@ -378,6 +441,7 @@
           if (rafId) return;
           level = 0;
           lastLoudAt = performance.now();
+          lastNow = 0;
           rafId = requestAnimationFrame(frame);
         };
 
@@ -385,10 +449,9 @@
           if (!rafId) return;
           cancelAnimationFrame(rafId);
           rafId = 0;
-          for (let i = 0; i < bars.length; i++) {
-            heights[i] = FLOOR;
-            bars[i].style.transform = 'scaleY(' + FLOOR + ')';
-          }
+          amplitude = FLOOR;
+          phase = 0;
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
 
         new MutationObserver(() => {
@@ -523,6 +586,68 @@
             }
             closeMenu();
           });
+        });
+      })();
+
+      // Idle hover hotkey tooltip. Mirrors the settings window's formatting
+      // (src/main.ts formatHotkey: CmdOrCtrl/Cmd -> Ctrl, Super -> Win) so the
+      // overlay and settings UI never disagree about what the hotkey reads
+      // as. Resolved lazily on first hover rather than at load, so a hotkey
+      // changed in Settings while the overlay is idle is picked up next
+      // hover instead of going stale. On any invoke failure or a missing
+      // `hotkey` field, the tooltip is left empty (`.has-hotkey` withheld) -
+      // never falls back to a hardcoded/remembered string.
+      (() => {
+        const idleLayer = document.querySelector('.state-idle');
+        const tooltip = document.getElementById('idle-hotkey');
+        if (!idleLayer || !tooltip) return;
+
+        const TOKEN_MAP = { CmdOrCtrl: 'Ctrl', Cmd: 'Ctrl', Super: 'Win' };
+        const formatHotkey = (hotkey) =>
+          String(hotkey)
+            .split('+')
+            .map((token) => TOKEN_MAP[token] ?? token)
+            .join('+');
+
+        let resolved = false; // avoid re-invoking on every hover once we know
+        let lastGoodText = '';
+
+        const clear = () => {
+          tooltip.textContent = '';
+          tooltip.classList.remove('has-hotkey');
+        };
+
+        const resolve = async () => {
+          const tauri = window.__TAURI__;
+          if (!tauri || !tauri.core || typeof tauri.core.invoke !== 'function') {
+            clear();
+            return;
+          }
+          try {
+            const settings = await tauri.core.invoke('get_settings');
+            const hotkey = settings && settings.hotkey;
+            if (typeof hotkey !== 'string' || !hotkey) {
+              clear();
+              return;
+            }
+            lastGoodText = formatHotkey(hotkey);
+            tooltip.textContent = lastGoodText;
+            tooltip.classList.add('has-hotkey');
+          } catch (err) {
+            console.error('[Typr] get_settings failed:', err);
+            clear();
+          } finally {
+            resolved = true;
+          }
+        };
+
+        idleLayer.addEventListener('mouseenter', () => {
+          if (!resolved) {
+            resolve();
+          } else if (lastGoodText) {
+            tooltip.textContent = lastGoodText;
+            tooltip.classList.add('has-hotkey');
+          }
         });
       })();
     </script>

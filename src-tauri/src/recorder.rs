@@ -25,6 +25,12 @@ const CANCEL_SHORTCUT: &str = "Escape";
 const PROCESSING_REVEAL_MS: u64 = 300;
 /// US-008: how long the "done" tick holds before relaxing back to idle.
 const DONE_HOLD_MS: u64 = 400;
+/// Hard ceiling on a single transcription. The 300ms budget above only decides
+/// when the processing pill appears; it re-awaits the SAME future afterwards,
+/// so without this a hung engine or stalled network never returns and the
+/// recorder stays in Transcribing forever - the same permanently-dead-hotkey
+/// failure as the early-return bug, just reached slowly instead of quickly.
+const TRANSCRIBE_TIMEOUT_SECS: u64 = 180;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
@@ -418,11 +424,21 @@ impl Recorder {
             Err(_elapsed) => {
                 update_overlay(app, &RecordingState::Transcribing);
                 set_status_dot(app, "processing");
-                match transcribe_fut.await {
-                    Ok(text) => text,
-                    Err(e) => {
+                match tokio::time::timeout(
+                    Duration::from_secs(TRANSCRIBE_TIMEOUT_SECS),
+                    &mut transcribe_fut,
+                )
+                .await
+                {
+                    Ok(Ok(text)) => text,
+                    Ok(Err(e)) => {
                         self.fail_to_ready(app, transcribe_failure_message(&e));
                         return Err(e);
+                    }
+                    Err(_) => {
+                        // Never leave the user stranded in Transcribing.
+                        self.fail_to_ready(app, "Transcription timed out.");
+                        return Err("transcription timed out".to_string());
                     }
                 }
             }

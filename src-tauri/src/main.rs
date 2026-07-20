@@ -490,7 +490,7 @@ fn make_hotkey_handler(
                                     sounds::play_stop(interaction_sounds);
                                 }
                                 match do_toggle_recording(&handle, state.inner()).await {
-                                    Ok(result) => println!("[Typr] Toggle result: {}", result),
+                                    Ok(result) => log_transcript(&result),
                                     Err(e) => eprintln!("[Typr] Toggle error: {}", e),
                                 }
                             }

@@ -94,7 +94,14 @@ pub async fn transcribe_groq(
         form = form.text("prompt", dictionary.trim().to_string());
     }
 
-    let client = reqwest::Client::new();
+    // No timeout here meant a stalled endpoint (flaky wifi, a proxy black-holing
+    // the response) hung the whole dictation forever, stranding the recorder in
+    // Transcribing with the Esc guard already gone. Bounded now.
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
     let response = client
         .post("https://api.groq.com/openai/v1/audio/transcriptions")
         .header("Authorization", format!("Bearer {}", api_key))

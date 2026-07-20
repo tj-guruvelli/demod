@@ -444,7 +444,12 @@ body {
 }
 
 .setting-label {
-  flex-shrink: 0;
+  /* Must be allowed to SHRINK. This was flex-shrink:0, so a long hint took its
+     full content width - measured at 744px inside a 555px row on the "Launch at
+     startup" setting - and pushed the row clean past the window edge. It now
+     shares the row and wraps, keeping the 176px floor so short labels do not
+     collapse against the control. */
+  flex: 1 1 auto;
   min-width: 176px;
 }
 
@@ -502,6 +507,35 @@ input[type="password"] {
   appearance: none;
   -webkit-appearance: none;
   transition: border-color var(--ease-out);
+}
+
+/* Dictionary textarea: no 260px cap like select/password above — it holds
+   free-form vocabulary lists, so it takes the full remaining row width
+   (.setting-control is flex:1) instead of the narrow single-value cap. */
+textarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 140px;
+  padding: 7px 12px;
+  background: var(--surface-solid);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  transition: border-color var(--ease-out);
+}
+
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+textarea::placeholder {
+  color: var(--text-tertiary);
 }
 
 select {
@@ -916,6 +950,7 @@ a:focus-visible,
 button:focus-visible,
 select:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 [tabindex]:focus-visible,
 [role="switch"]:focus-visible {
   outline: 2px solid var(--accent);
@@ -945,7 +980,8 @@ input:focus-visible,
 }
 
 select:focus-visible,
-input[type="password"]:focus-visible {
+input[type="password"]:focus-visible,
+textarea:focus-visible {
   border-color: var(--border-hover);
 }
 
@@ -972,4 +1008,38 @@ input[type="password"]:focus-visible {
   #status-dot.transcribing {
     animation: none !important;
   }
+}
+
+/* A textarea does not fit the narrow right-hand control column - it escaped the
+   card entirely and rendered outside it. Wide controls get their own full-width
+   row underneath the label instead. */
+.setting-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.setting-control-wide {
+  width: 100%;
+  justify-content: stretch;
+}
+
+.setting-control-wide textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 10px 12px;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* Selects were collapsing to just their chevron when their option text had not
+   loaded yet, so the control read as empty. Give them a floor. */
+.setting-control select {
+  min-width: 190px;
 }

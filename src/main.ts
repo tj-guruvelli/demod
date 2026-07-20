@@ -16,6 +16,16 @@ interface Settings {
   // never written back from the frontend. See Overlay → Dock position.
   overlayX?: number | null;
   overlayY?: number | null;
+  // Groq model id (settings.rs cloud_model, #[serde(rename = "cloudModel")]).
+  cloudModel?: string;
+  // Custom vocabulary biasing recognition on both engines (settings.rs dictionary).
+  dictionary?: string;
+  // Text-processing toggles applied to the transcript before it's delivered
+  // (cleanup.rs / recorder.rs). All round-trip through get_settings/save_settings.
+  autoPaste?: boolean;
+  trailingSpace?: boolean;
+  capitalize?: boolean;
+  ensurePunctuation?: boolean;
 }
 
 interface MicDevice {
@@ -54,6 +64,9 @@ const hotkeyCapture = document.getElementById("hotkey-capture") as HTMLButtonEle
 const hotkeyMessage = document.getElementById("hotkey-message")!;
 const localLanguageSettings = document.getElementById("local-language-settings")!;
 const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
+const cloudModelSelect = document.getElementById("cloud-model-select") as HTMLSelectElement;
+const dictionaryTextarea = document.getElementById("dictionary-textarea") as HTMLTextAreaElement;
+const textToggleList = document.getElementById("text-toggle-list")!;
 const soundsSwitch = document.getElementById("sounds-switch")!;
 const overlaySwitch = document.getElementById("overlay-switch")!;
 const autostartSwitch = document.getElementById("autostart-switch")!;
@@ -168,9 +181,7 @@ let currentSettings: Settings;
 // "large-v3" id maps to ggml-large-v3.bin via the existing ggml-{id}.bin URL
 // scheme in transcribe_local::model_download_url — verified present at
 // https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
-// The cloud engine's model is fixed server-side in transcribe_groq.rs; named
-// here only so the footer can say what is actually transcribing.
-const GROQ_MODEL = "whisper-large-v3-turbo";
+
 
 const MODEL_CATALOG = [
   { id: "small", label: "Small", sizeLabel: "~466 MB", speedLabel: "Fast" },
@@ -202,6 +213,108 @@ const LANGUAGE_CATALOG = [
   { id: "hi", label: "Hindi" },
   { id: "ar", label: "Arabic" },
 ] as const;
+
+// Groq cloud model ids — must match a model transcribe_groq.rs actually
+// accepts (settings.rs default_cloud_model / cloud_model). Adding a new Groq
+// model later is a one-line addition here; nothing else changes.
+const CLOUD_MODEL_CATALOG = [
+  {
+    id: "whisper-large-v3",
+    label: "Large v3 (most accurate, default)",
+  },
+  {
+    id: "whisper-large-v3-turbo",
+    label: "Large v3 Turbo (faster, less accurate)",
+  },
+  {
+    id: "distil-whisper-large-v3-en",
+    label: "Distil Large v3 English (fastest, English-only)",
+  },
+] as const;
+
+// Generic <select> populator shared by every catalog-backed dropdown
+// (Language, Cloud model, and any future one) — one renderer, data-driven.
+function populateSelectCatalog(
+  select: HTMLSelectElement,
+  catalog: readonly { id: string; label: string }[]
+) {
+  if (select.options.length > 0) return;
+  catalog.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.label;
+    select.appendChild(option);
+  });
+}
+
+// Text-processing toggles applied to the transcript before delivery
+// (cleanup.rs on the Rust side). Each entry is a one-line addition to expose
+// a new boolean setting as a switch row — renderToggleRows() below is the
+// single generic renderer/handler for all of them.
+interface ToggleCatalogEntry {
+  key: "autoPaste" | "trailingSpace" | "capitalize" | "ensurePunctuation";
+  label: string;
+  hint: string;
+  default: boolean;
+}
+
+const TEXT_TOGGLE_CATALOG: ToggleCatalogEntry[] = [
+  {
+    key: "autoPaste",
+    label: "Auto-paste transcript",
+    hint: "Type the transcript into the focused app. When off, it's placed on the clipboard for you to paste yourself.",
+    default: true,
+  },
+  {
+    key: "trailingSpace",
+    label: "Trailing space",
+    hint: "Append a space after the transcript so back-to-back dictations don't run together.",
+    default: false,
+  },
+  {
+    key: "capitalize",
+    label: "Capitalize sentences",
+    hint: "Capitalize the first letter of each sentence.",
+    default: true,
+  },
+  {
+    key: "ensurePunctuation",
+    label: "Ensure punctuation",
+    hint: "Add a period if the transcript has no terminal punctuation.",
+    default: true,
+  },
+];
+
+// Single generic renderer for the whole toggle catalog: builds every switch
+// row from data, and (via the delegated listener registered once below)
+// writes to currentSettings AND calls saveSettings() on every click — the
+// one code path that can't silently forget to persist (footgun #13).
+function renderToggleRows(container: HTMLElement, entries: ToggleCatalogEntry[]) {
+  container.innerHTML = entries
+    .map((t) => {
+      const checked = Boolean(currentSettings[t.key] ?? t.default);
+      return `
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="label-text">${t.label}</span>
+          <span class="label-hint">${t.hint}</span>
+        </div>
+        <div class="setting-control">
+          <button
+            type="button"
+            class="switch${checked ? " active" : ""}"
+            role="switch"
+            aria-checked="${checked}"
+            aria-label="${t.label}"
+            data-toggle-key="${t.key}"
+          >
+            <span class="switch-knob"></span>
+          </button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
 
 function formatHotkey(hotkey: string): string {
   const tokenMap: Record<string, string> = {
@@ -269,6 +382,16 @@ async function loadSettings() {
   }
   setLanguage(currentSettings.language ?? "en");
 
+  // Cloud model (Groq, cloud engine only)
+  populateSelectCatalog(cloudModelSelect, CLOUD_MODEL_CATALOG);
+  setCloudModel(currentSettings.cloudModel ?? "whisper-large-v3");
+
+  // Dictionary (custom vocabulary, both engines)
+  dictionaryTextarea.value = currentSettings.dictionary ?? "";
+
+  // Text-processing toggles (auto-paste, trailing space, capitalize, punctuation)
+  renderToggleRows(textToggleList, TEXT_TOGGLE_CATALOG);
+
   // Interaction sounds
   setInteractionSounds(currentSettings.interactionSounds ?? true);
 
@@ -302,6 +425,11 @@ function setEngine(engine: string) {
 function setLanguage(language: string) {
   currentSettings.language = language;
   languageSelect.value = language;
+}
+
+function setCloudModel(model: string) {
+  currentSettings.cloudModel = model;
+  cloudModelSelect.value = model;
 }
 
 function setRecordingMode(mode: string) {
@@ -420,7 +548,7 @@ async function renderModelCards() {
   // - it reads as broken when nothing is wrong. Name what is actually running.
   footerModel.textContent =
     currentSettings.engine === "cloud"
-      ? `Model: Groq ${GROQ_MODEL}`
+      ? `Model: Groq ${currentSettings.cloudModel}`
       : `Model: ${currentSettings.whisperModel}${suffix}`;
 }
 
@@ -639,6 +767,33 @@ autostartSwitch.addEventListener("click", async () => {
 
 languageSelect.addEventListener("change", () => {
   setLanguage(languageSelect.value);
+  saveSettings();
+});
+
+cloudModelSelect.addEventListener("change", () => {
+  setCloudModel(cloudModelSelect.value);
+  saveSettings();
+});
+
+// Committed on blur (matches groqKey's pattern) rather than every keystroke —
+// a multi-line vocabulary list shouldn't trigger a save per character.
+dictionaryTextarea.addEventListener("change", () => {
+  currentSettings.dictionary = dictionaryTextarea.value;
+  saveSettings();
+});
+
+// Single delegated listener for every toggle the generic renderToggleRows()
+// produces (currently TEXT_TOGGLE_CATALOG, but works for any future catalog
+// rendered into a container this way) — writes the cached setting AND saves,
+// so a new toggle can never be added without both halves of footgun #13.
+textToggleList.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("[data-toggle-key]") as HTMLElement | null;
+  if (!btn) return;
+  const key = btn.getAttribute("data-toggle-key") as ToggleCatalogEntry["key"];
+  const next = !(currentSettings[key] ?? false);
+  currentSettings[key] = next;
+  btn.classList.toggle("active", next);
+  btn.setAttribute("aria-checked", String(next));
   saveSettings();
 });
 
