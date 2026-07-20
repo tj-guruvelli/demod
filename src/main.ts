@@ -45,8 +45,7 @@ const modeAuto = document.getElementById("mode-auto")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
-const soundsOn = document.getElementById("sounds-on")!;
-const soundsOff = document.getElementById("sounds-off")!;
+const soundsSwitch = document.getElementById("sounds-switch")!;
 const overlayOn = document.getElementById("overlay-on")!;
 const overlayOff = document.getElementById("overlay-off")!;
 const dockPositionText = document.getElementById("dock-position-text")!;
@@ -179,8 +178,8 @@ function setRecordingMode(mode: string) {
 
 function setInteractionSounds(enabled: boolean) {
   currentSettings.interactionSounds = enabled;
-  soundsOn.classList.toggle("active", enabled);
-  soundsOff.classList.toggle("active", !enabled);
+  soundsSwitch.classList.toggle("active", enabled);
+  soundsSwitch.setAttribute("aria-checked", String(enabled));
 }
 
 function setOverlayVisible(enabled: boolean) {
@@ -256,13 +255,8 @@ modePtt.addEventListener("click", () => {
   saveSettings();
 });
 
-soundsOn.addEventListener("click", () => {
-  setInteractionSounds(true);
-  saveSettings();
-});
-
-soundsOff.addEventListener("click", () => {
-  setInteractionSounds(false);
+soundsSwitch.addEventListener("click", () => {
+  setInteractionSounds(!(currentSettings.interactionSounds ?? true));
   saveSettings();
 });
 
