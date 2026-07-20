@@ -30,16 +30,12 @@
         <nav id="sidebar-nav">
           <a class="nav-item active" data-section="general">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M8 5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 4h6M11 4h3M2 8h3M8 8h6M2 12h8M13 12h1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <circle cx="8.5" cy="4" r="1.4" stroke="currentColor" stroke-width="1.2"/>
+              <circle cx="5.5" cy="8" r="1.4" stroke="currentColor" stroke-width="1.2"/>
+              <circle cx="10.5" cy="12" r="1.4" stroke="currentColor" stroke-width="1.2"/>
             </svg>
             General
-          </a>
-          <a class="nav-item" data-section="engine">
-            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2.5 8h3l1.5-3 2 6 1.5-3h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Engine
           </a>
           <a class="nav-item" data-section="recording">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -48,8 +44,46 @@
             </svg>
             Recording
           </a>
+          <a class="nav-item" data-section="overlay">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2.5" width="12" height="11" rx="1.6" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M2 5.5h12" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="5.5" y="10.2" width="5" height="1.6" rx="0.8" fill="currentColor"/>
+            </svg>
+            Overlay
+          </a>
+          <a class="nav-item" data-section="models">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="4.5" y="4.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="6.5" y="6.5" width="3" height="3" rx="0.5" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3 3l1.4 1.4M13 3l-1.4 1.4M3 13l1.4-1.4M13 13l-1.4-1.4"
+                    stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            </svg>
+            Models
+          </a>
+          <a class="nav-item" data-section="history">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3.5 4.5A6 6 0 112.2 8.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <path d="M2 2.5v2.4h2.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 5v3.2l2.2 1.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            History
+          </a>
+          <a class="nav-item" data-section="privacy">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 1.8l5 1.8v3.8c0 3.3-2.1 5.7-5 6.8-2.9-1.1-5-3.5-5-6.8V3.6l5-1.8z"
+                    stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+              <path d="M5.8 8.1l1.6 1.6 2.8-3.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Privacy
+          </a>
         </nav>
         <div class="sidebar-footer">
+          <div class="footer-status" id="footer-status">
+            <span class="footer-status-item" id="footer-sidecar"><span class="dot"></span>Ready</span>
+            <span class="footer-status-item" id="footer-model">Model: &hellip;</span>
+            <span class="footer-status-item" id="footer-hotkey">Hotkey: &hellip;</span>
+          </div>
           <span class="version-text">v0.1.0</span>
         </div>
       </aside>
@@ -60,7 +94,8 @@
             <h2 class="section-title">General</h2>
             <p class="section-desc">Configure your audio input device</p>
           </div>
-          <div class="settings-list">
+          <div class="card">
+            <div class="card-header">Input</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Microphone</span>
@@ -73,60 +108,13 @@
           </div>
         </section>
 
-        <section id="section-engine" class="content-section">
-          <div class="section-header">
-            <h2 class="section-title">Engine</h2>
-            <p class="section-desc">Choose your transcription backend</p>
-          </div>
-          <div class="settings-list">
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Transcription Engine</span>
-                <span class="label-hint">Local runs on-device, Cloud requires an API key</span>
-              </div>
-              <div class="setting-control">
-                <div class="toggle-group">
-                  <button id="engine-local" class="toggle-btn active">Local Whisper</button>
-                  <button id="engine-cloud" class="toggle-btn">Groq Cloud</button>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row" id="local-settings">
-              <div class="setting-label">
-                <span class="label-text">Model Size</span>
-                <span class="label-hint">Larger models are more accurate but use more resources</span>
-              </div>
-              <div class="setting-control">
-                <div class="model-row">
-                  <select id="model-select">
-                    <option value="small">Small (~466 MB)</option>
-                    <option value="medium">Medium (~1.5 GB)</option>
-                  </select>
-                  <button id="download-btn" class="btn-primary">Download</button>
-                </div>
-              </div>
-            </div>
-            <div id="download-progress" class="hidden">
-              <div id="progress-bar"><div id="progress-fill"></div></div>
-            </div>
-            <div class="setting-row hidden" id="cloud-settings">
-              <div class="setting-label">
-                <span class="label-text">Groq API Key</span>
-                <span class="label-hint">Get your key from console.groq.com</span>
-              </div>
-              <div class="setting-control">
-                <input type="password" id="groq-key" placeholder="gsk_..." />
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section id="section-recording" class="content-section">
           <div class="section-header">
             <h2 class="section-title">Recording</h2>
             <p class="section-desc">Configure how you trigger transcription</p>
           </div>
-          <div class="settings-list">
+          <div class="card">
+            <div class="card-header">Trigger</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Recording Mode</span>
@@ -146,9 +134,12 @@
                 <span class="label-hint">Global keyboard shortcut to trigger recording</span>
               </div>
               <div class="setting-control">
-                <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                <kbd id="hotkey-text">&hellip;</kbd>
               </div>
             </div>
+          </div>
+          <div class="card">
+            <div class="card-header">Feedback</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Interaction sounds</span>
@@ -161,6 +152,16 @@
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="section-overlay" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Overlay</h2>
+            <p class="section-desc">Configure the floating recording pill</p>
+          </div>
+          <div class="card">
+            <div class="card-header">Visibility</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Show overlay</span>
@@ -170,6 +171,122 @@
                 <div class="toggle-group">
                   <button id="overlay-on" class="toggle-btn active">On</button>
                   <button id="overlay-off" class="toggle-btn">Off</button>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Dock position</span>
+                <span class="label-hint">Drag the pill to move it &mdash; its position is saved automatically</span>
+              </div>
+              <div class="setting-control">
+                <span class="setting-value-text" id="dock-position-text">&hellip;</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-models" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Models</h2>
+            <p class="section-desc">Choose your transcription backend</p>
+          </div>
+          <div class="card">
+            <div class="card-header">Engine</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Transcription Engine</span>
+                <span class="label-hint">Local runs on-device, Cloud requires an API key</span>
+              </div>
+              <div class="setting-control">
+                <div class="toggle-group">
+                  <button id="engine-local" class="toggle-btn active">Local Whisper</button>
+                  <button id="engine-cloud" class="toggle-btn">Groq Cloud</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="local-settings">
+            <div class="card-header">Voice model</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Model Size</span>
+                <span class="label-hint">Larger models are more accurate but use more resources</span>
+              </div>
+              <div class="setting-control">
+                <div class="model-row">
+                  <select id="model-select">
+                    <option value="small">Small (~466 MB)</option>
+                    <option value="medium">Medium (~1.5 GB)</option>
+                  </select>
+                  <button id="download-btn" class="btn-primary">Download</button>
+                </div>
+              </div>
+            </div>
+            <div id="download-progress" class="hidden">
+              <div id="progress-bar"><div id="progress-fill"></div></div>
+            </div>
+          </div>
+          <div class="card hidden" id="cloud-settings">
+            <div class="card-header">Cloud</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Groq API Key</span>
+                <span class="label-hint">Get your key from console.groq.com</span>
+              </div>
+              <div class="setting-control">
+                <input type="password" id="groq-key" placeholder="gsk_..." />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-history" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">History</h2>
+            <p class="section-desc">Past transcripts</p>
+          </div>
+          <div class="card">
+            <div class="empty-state">
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M3.5 4.5A6 6 0 112.2 8.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                <path d="M2 2.5v2.4h2.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 5v3.2l2.2 1.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="empty-title">No history yet</span>
+              <span class="empty-detail">Typr doesn't save past transcripts in this build &mdash; there's nothing to show here.</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-privacy" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Privacy</h2>
+            <p class="section-desc">What Typr does with your data</p>
+          </div>
+          <p class="privacy-copy">
+            Typr runs entirely on this device. Nothing is uploaded, except audio you
+            explicitly send to Groq Cloud when the Cloud engine is selected in Models.
+            There is no account system and no telemetry.
+          </p>
+          <div class="card">
+            <div class="card-header">Retention</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Delete recordings automatically</span>
+                <span class="label-hint">Requires History logging, which isn't built yet</span>
+              </div>
+              <div class="setting-control">
+                <span class="gate-badge">
+                  <svg class="badge-icon" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
+                    <path d="M8 5.2v3.3M8 10.8h.01" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  </svg>
+                  Not available
+                </span>
+                <div class="toggle-group disabled">
+                  <button class="toggle-btn" disabled>On</button>
+                  <button class="toggle-btn active" disabled>Off</button>
                 </div>
               </div>
             </div>

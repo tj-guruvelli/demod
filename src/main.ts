@@ -11,6 +11,10 @@ interface Settings {
   hotkey: string;
   interactionSounds?: boolean;
   overlayVisible?: boolean;
+  // Already deserialized server-side (pill_hittest.rs) — read-only display only,
+  // never written back from the frontend. See Overlay → Dock position.
+  overlayX?: number | null;
+  overlayY?: number | null;
 }
 
 interface MicDevice {
@@ -45,18 +49,41 @@ const soundsOn = document.getElementById("sounds-on")!;
 const soundsOff = document.getElementById("sounds-off")!;
 const overlayOn = document.getElementById("overlay-on")!;
 const overlayOff = document.getElementById("overlay-off")!;
+const dockPositionText = document.getElementById("dock-position-text")!;
+const footerSidecar = document.getElementById("footer-sidecar")!;
+const footerModel = document.getElementById("footer-model")!;
+const footerHotkey = document.getElementById("footer-hotkey")!;
 
-// Section navigation
+// Section navigation — 150ms opacity/transform crossfade (matches overlay.html's
+// own ease-in/ease-out grammar) instead of an instant display swap.
 const navItems = document.querySelectorAll(".nav-item");
-const sections = document.querySelectorAll(".content-section");
 
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
     const target = item.getAttribute("data-section");
+    const current = document.querySelector(".content-section.active") as HTMLElement | null;
+    const next = document.getElementById(`section-${target}`) as HTMLElement | null;
+    if (!next || next === current) return;
+
     navItems.forEach((n) => n.classList.remove("active"));
-    sections.forEach((s) => s.classList.remove("active"));
     item.classList.add("active");
-    document.getElementById(`section-${target}`)?.classList.add("active");
+
+    if (current) {
+      current.classList.add("leaving");
+      current.classList.remove("active");
+      current.addEventListener(
+        "transitionend",
+        () => {
+          current.classList.remove("leaving");
+          current.style.display = "none";
+        },
+        { once: true }
+      );
+    }
+    next.style.display = "block";
+    // rAF so the browser commits `display:block` before the class flips —
+    // otherwise the opacity/transform transition has no paint to animate from.
+    requestAnimationFrame(() => next.classList.add("active"));
   });
 });
 
@@ -118,12 +145,21 @@ async function loadSettings() {
 
   // Hotkey
   hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
+  footerHotkey.textContent = formatHotkey(currentSettings.hotkey);
 
   // Interaction sounds
   setInteractionSounds(currentSettings.interactionSounds ?? true);
 
   // Show overlay
   setOverlayVisible(currentSettings.overlayVisible ?? true);
+
+  // Dock position (Overlay tab) — read-only, sourced from the already-deserialized
+  // overlayX/overlayY; null means the pill has never been dragged off default.
+  const { overlayX, overlayY } = currentSettings;
+  dockPositionText.textContent =
+    overlayX != null && overlayY != null
+      ? `Custom · (${overlayX}, ${overlayY})`
+      : "Default · bottom-center";
 }
 
 function setEngine(engine: string) {
@@ -159,6 +195,7 @@ async function checkModelStatus() {
   });
   downloadBtn.textContent = downloaded ? "\u2713" : "Download";
   (downloadBtn as HTMLButtonElement).disabled = downloaded;
+  footerModel.textContent = `Model: ${modelSelect.value}${downloaded ? "" : " (not downloaded)"}`;
 }
 
 async function saveSettings() {
@@ -243,16 +280,21 @@ overlayOff.addEventListener("click", () => {
 listen<string>("recording-state", (event) => {
   const state = event.payload;
   statusDot.className = "";
+  let label = "Ready";
   if (state === "Recording") {
     statusDot.classList.add("recording");
-    statusText.textContent = "Recording...";
+    label = "Recording...";
   } else if (state === "Transcribing") {
     statusDot.classList.add("transcribing");
-    statusText.textContent = "Transcribing...";
+    label = "Transcribing...";
   } else {
     statusDot.classList.add("ready");
-    statusText.textContent = "Ready";
+    label = "Ready";
   }
+  statusText.textContent = label;
+  // Sidebar footer health row (visible from every section) mirrors the same event.
+  footerSidecar.innerHTML = `<span class="dot"></span>${label}`;
+  footerSidecar.querySelector(".dot")!.className = `dot ${statusDot.className}`;
 });
 
 // Listen for download progress
