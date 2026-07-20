@@ -73,6 +73,24 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
 - cargo test --lib only exercises typr_lib (settings.rs, recorder.rs, etc.) - main.rs is the
   bin crate and has no unit tests; `cargo check` (checks all targets incl. the bin) is the
   gate that actually compiles the hotkey closure in main.rs.
+- CRITICAL Win32 global-shortcut gotcha (US-006): tauri-plugin-global-shortcut's
+  GlobalHotKeyEvent dispatch (verified in the 2.3.1 + global-hotkey 0.7.0 source in the local
+  cargo registry cache) holds a lock on its OWN internal shortcuts-map Mutex for the entire
+  duration of a shortcut's handler closure, and on Windows that closure runs synchronously on
+  the main thread's WndProc (WM_HOTKEY). Calling app.global_shortcut().register/unregister/
+  on_shortcut SYNCHRONOUSLY from inside a shortcut's own handler closure re-locks that same
+  non-reentrant Mutex on the same thread -> self-deadlock, freezing the whole app (not just the
+  feature). Any register/unregister triggered in response to a shortcut event MUST be deferred
+  via tauri::async_runtime::spawn so it runs after the closure returns and releases the lock.
+  This applies to ANY future story that registers per-state global shortcuts (the confirm-
+  discard/second-Esc path and the main hotkey already follow this rule).
+- Ordering gotcha for any "cancel/discard while state X, gated re-entry on state Y" flow (found
+  by code-reviewer on US-006's cancel_recording, real HIGH-severity race): if state must not
+  flip to the gate value (e.g. Ready) until some cleanup step (e.g. unregistering a shortcut)
+  finishes, do the cleanup BEFORE flipping state, not after - otherwise a fast re-entry (new
+  recording starting) can race the stale cleanup and end up in a corrupted config (e.g. its
+  fresh registration clobbered by the old unregister, or vice versa). Symmetric to the US-005
+  "one enum behind one lock" lesson but about *ordering within one path*, not lock granularity.
 ---
 
 ## 2026-07-19 - US-001
@@ -229,3 +247,46 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
     index.html's Recording Mode hint text - keep that hint in sync if either changes.
   - When a new gesture/state machine needs 2+ correlated fields to decide something, use
     ONE enum behind ONE lock, not N separately-locked fields - see Codebase Patterns above.
+
+## 2026-07-20 - US-006 (Esc cancel with 30-second discard guard)
+- recorder.rs: Recorder gained recording_started_at (Arc<Mutex<Option<Instant>>>, tracked in
+  Recorder per the US-005 learning above, NOT sharing main.rs's hotkey_gesture) and a
+  cancel_guard: Arc<Mutex<CancelGuard>> (None / ConfirmDiscard(Instant)). start_recording now
+  stamps recording_started_at and registers the "Escape" global shortcut (arm_cancel_shortcut);
+  both cancel_recording and the top of stop_and_transcribe unregister it - Escape is never
+  globally registered while idle. Esc under 30s elapsed -> instant cancel (new
+  AudioRecorder::cancel() in audio.rs drops the cpal stream and clears samples without writing
+  a WAV, mirroring stop_and_save's teardown). Esc past 30s: first press sets overlay
+  data-state=confirm-discard (already pre-mounted in overlay.html) and arms a 3s
+  tokio::time::sleep auto-revert-to-listening timer, debounced against a fresher arm/clear via
+  an armed_at Instant token; a second Esc while armed discards immediately. Pulled
+  update_overlay's eval string into a small set_overlay_state(app, name) helper so the
+  confirm-discard/listening evals reuse it instead of duplicating the JS format string.
+- Files changed: src-tauri/src/recorder.rs, src-tauri/src/audio.rs, prd.json, progress.txt.
+- Checks: cargo check clean; cargo test --lib 24/24 pass; npm run build exit 0.
+- Code-reviewed (concurrency-focused pass, since this story registers/unregisters a global
+  shortcut from application code for the first time): confirmed correct that
+  tauri-plugin-global-shortcut's event dispatch holds its own internal shortcuts-map lock for
+  the whole duration of a shortcut handler closure (main-thread WndProc on Windows), so
+  register/unregister must never be called synchronously from inside that closure - see the
+  new Codebase Patterns entry above. The review also caught a real HIGH-severity ordering race
+  in the first draft of cancel_recording (state flipped to Ready, unblocking a fresh
+  start_recording/re-registration, BEFORE the old Escape registration had finished being torn
+  down) - fixed by unregistering before flipping state to Ready. Also tightened the 3s
+  auto-revert timer to double-check state==Recording (not just the CancelGuard token) before
+  reverting the overlay, closing a narrower cosmetic race against a concurrent second-Esc
+  discard. NOT verified at runtime (no browser/UI tools this iteration): actual Esc-under-30s,
+  first-Esc-past-30s-then-timeout, first-Esc-past-30s-then-second-Esc, and rapid
+  cancel-then-restart all need a manual dev run; US-011 covers the end-to-end launch check.
+- **Learnings for future iterations:**
+  - Any future story that registers a global shortcut dynamically (not just once at startup)
+    must follow the defer-via-async_runtime::spawn rule above - it is easy to get right at
+    compile time (cargo check/test can't catch the self-deadlock) and easy to get wrong at
+    runtime, so treat any new on_shortcut/register/unregister call site as needing a
+    code-reviewer pass before commit, the same way US-005's lock consolidation did.
+  - "Discard now" is idempotent by construction in cancel_recording (cancelling an
+    already-stopped stream, clearing an already-None Option, unregistering an
+    already-unregistered shortcut are all safe no-ops) - this is what makes it safe for two
+    near-simultaneous Esc presses to both spawn a cancel task without extra de-duplication.
+    Keep new cancel/teardown paths idempotent for the same reason rather than adding explicit
+    de-dup locking.

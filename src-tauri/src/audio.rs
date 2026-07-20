@@ -138,6 +138,15 @@ impl AudioRecorder {
         Ok(())
     }
 
+    /// Stop capture and discard whatever was recorded, without writing a
+    /// WAV file (US-006 Esc cancel). Mirrors stop_and_save's stream
+    /// teardown but skips the resample/encode/write entirely.
+    pub fn cancel(&mut self) {
+        self.stream = None; // Drop stops the stream
+        self.samples.lock().unwrap().clear();
+        println!("[Typr] Audio recording cancelled (discarded)");
+    }
+
     pub fn stop_and_save(&mut self, output_path: &PathBuf) -> Result<PathBuf, String> {
         self.stream = None; // Drop stops the stream
         println!("[Typr] Audio recording stopped");
