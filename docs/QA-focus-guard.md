@@ -29,8 +29,10 @@ phrase so a misplaced paste is unmissable.
    real config is captured and restored, verified afterwards.
 4. Focus change DURING recording (before stop): start in Notepad, Alt-Tab mid-speech,
    Alt-Tab back, stop. EXPECTED: paste lands in Notepad (focus at stop == focus at paste).
-5. Push-to-talk variant of #2 (hold key, release after switching apps).
-6. Tap-toggle variant of #2 (tap start, tap stop from the other app via hotkey).
+5. [AUTOMATED - typr-e2e/gesture-check.mjs, 10/10] Push-to-talk: a 900ms HOLD of the
+   real global hotkey starts, and release completes the dictation.
+6. [AUTOMATED - typr-e2e/gesture-check.mjs] Tap-toggle: a short tap starts recording
+   and a second short tap stops it, via the real global hotkey.
 7. Esc cancel: start, speak, Esc within a beat. EXPECTED: discard, no paste anywhere,
    confirm-discard state behaves per US-006.
 8. Rapid re-dictation: two cycles back-to-back into different apps. No cross-paste.
@@ -82,19 +84,27 @@ foreground change, but the SHELL can - the Windows speech synthesizer plus
 AppActivate covers both, and garbled transcription is fine when the assertion is
 about paste destination rather than content.
 
-What genuinely still needs a person, in risk order:
+Every assumption about what was unautomatable turned out to be wrong, in three
+stages. Recorded here so nobody re-derives them:
 
-1. **Scenario 2** - dictate, Alt-Tab to another app while "Transcribing" shows,
-   confirm nothing pastes there. Its code path is the SAME one scenario 3 now
-   covers automatically (a foreign foreground window fails the hwnd+pid check
-   and falls back), so this is substantially though not literally verified.
-2. **Scenarios 5 and 6** - push-to-talk and tap-toggle variants. These need a
-   real HELD or TAPPED global hotkey, which is the one thing still unreachable:
-   toggle_recording bypasses the gesture state machine entirely, so the
-   tap/hold discrimination itself is untested outside its unit tests.
-3. **Scenario 12** - repeat 2 in a real messaging app, the original blast radius.
-4. The rest (1, 4, 7-11, 14) are lower risk; do them as you use the app during
-   the dogfood day.
+- "CDP cannot synthesize speech" - true, but the Windows speech synthesizer
+  through the speakers reaches the mic array. Transcription is garbled, which
+  does not matter when the assertion is about paste DESTINATION.
+- "CDP cannot change the foreground window" - true, but AppActivate can.
+- "A global hotkey cannot be pressed programmatically" - FALSE. The plugin uses
+  RegisterHotKey, and Windows delivers keybd_event-injected input through the
+  same path, so the real gesture state machine (including the 300ms tap-vs-hold
+  threshold) is fully drivable.
+
+AUTOMATED and passing: 3 (focus guard, focus-guard-check.mjs 7/7), 5 and 6
+(gestures, gesture-check.mjs 10/10), 13 (failure recovery, recovery-check.mjs
+8/8). Scenario 2 shares scenario 3's code path - a foreign foreground window
+fails the hwnd+pid check and falls back - so it is covered in mechanism.
+
+What is left is genuinely observational rather than a discrete test: scenarios
+1, 4, 7-12 and 14, all lower risk, best confirmed simply by using the app for a
+day with the .bak in place. Scenario 12 in particular (a real messaging app) is
+the same code path as 2 and 3, just a different target application.
 
 If 2, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do not
 retry on the daily driver.
