@@ -263,6 +263,18 @@
               </div>
               <div class="setting-control">
                 <input type="password" id="groq-key" placeholder="gsk_..." />
+                <button id="groq-key-save" class="btn-secondary" type="button">Save</button>
+                <span id="groq-key-status" class="gate-badge" role="status" aria-live="polite" hidden></span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Connection</span>
+                <span class="label-hint">Actually contacts Groq to confirm the key works, without sending audio.</span>
+              </div>
+              <div class="setting-control">
+                <span id="groq-test-status" class="gate-badge" role="status" aria-live="polite" hidden></span>
+                <button id="groq-test-btn" class="btn-secondary" type="button">Test connection</button>
               </div>
             </div>
           </div>

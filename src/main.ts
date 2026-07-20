@@ -42,6 +42,10 @@ const modelList = document.getElementById("model-list")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
+const groqKeySaveBtn = document.getElementById("groq-key-save") as HTMLButtonElement;
+const groqKeyStatus = document.getElementById("groq-key-status") as HTMLElement;
+const groqTestBtn = document.getElementById("groq-test-btn") as HTMLButtonElement;
+const groqTestStatus = document.getElementById("groq-test-status") as HTMLElement;
 const modeAuto = document.getElementById("mode-auto")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
@@ -423,7 +427,10 @@ function clearAppNotice() {
   delete appNotice.dataset.kind;
 }
 
-async function saveSettings() {
+/// Returns whether the save actually reached disk, so callers that need to
+/// show their own "it was stored" confirmation (the Groq key Save button)
+/// never claim success the invoke did not report.
+async function saveSettings(): Promise<boolean> {
   currentSettings.microphone = micSelect.value;
   currentSettings.groqApiKey = groqKey.value;
   try {
@@ -432,12 +439,28 @@ async function saveSettings() {
     // now are, so a successful save is exactly when they should still stand.
     if (appNotice.dataset.kind === "error") clearAppNotice();
     refreshAdvisories();
+    return true;
   } catch (err) {
     // The control has already moved on screen, so staying silent here would
     // leave the user believing a setting persisted when it did not.
     console.error("[Typr] save_settings failed:", err);
     showAppNotice("Could not save your settings, so that last change was not kept.");
+    return false;
   }
+}
+
+/// Sets the small badge next to a settings control, or hides it. `kind`
+/// selects the CSS tint (status-saved/status-error/etc, see style.css);
+/// omit it to hide.
+function setStatusBadge(el: HTMLElement, text: string, kind?: string) {
+  el.className = "gate-badge" + (kind ? ` ${kind}` : "");
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function hideStatusBadge(el: HTMLElement) {
+  el.hidden = true;
+  el.textContent = "";
 }
 
 // Event listeners
@@ -489,6 +512,60 @@ groqKey.addEventListener("change", () => saveSettings());
 groqKey.addEventListener("input", () => {
   currentSettings.groqApiKey = groqKey.value;
   refreshAdvisories();
+  // The field changed since the last Save/Test, so any prior "Saved" /
+  // connection-test badge no longer describes what's in the box now.
+  hideStatusBadge(groqKeyStatus);
+  hideStatusBadge(groqTestStatus);
+});
+
+// Explicit Save button: the field previously saved silently on blur with no
+// on-screen confirmation, so a bad key was only discovered after a failed
+// dictation. This makes "it was stored" (or wasn't) unambiguous.
+groqKeySaveBtn.addEventListener("click", async () => {
+  groqKeySaveBtn.disabled = true;
+  setStatusBadge(groqKeyStatus, "Saving…", "status-pending");
+  const ok = await saveSettings();
+  groqKeySaveBtn.disabled = false;
+  if (ok) {
+    setStatusBadge(groqKeyStatus, "Saved", "status-saved");
+  } else {
+    // saveSettings() already surfaced the failure via showAppNotice; this
+    // badge just must not claim "Saved" when it wasn't.
+    setStatusBadge(groqKeyStatus, "Not saved", "status-error");
+  }
+});
+
+// "Test connection": contacts Groq for real (GET /v1/models, no audio) and
+// reports one of three honest, distinct outcomes. A timeout/offline result
+// must never be reported as "key rejected" - they need completely different
+// fixes from the user.
+groqTestBtn.addEventListener("click", async () => {
+  groqTestBtn.disabled = true;
+  setStatusBadge(groqTestStatus, "Testing…", "status-pending");
+  // test_groq_connection reads the key from the SAVED settings on the Rust
+  // side, not straight off this input - save first so a key typed but not
+  // yet blurred/saved is actually the one that gets tested, not a stale one.
+  await saveSettings();
+  try {
+    const result = await invoke<string>("test_groq_connection");
+    if (result === "empty") {
+      setStatusBadge(groqTestStatus, "No key entered", "status-error");
+    } else if (result === "valid") {
+      setStatusBadge(groqTestStatus, "Key accepted", "status-valid");
+    } else if (result === "rejected") {
+      setStatusBadge(groqTestStatus, "Key rejected by Groq", "status-rejected");
+    } else if (result.startsWith("unreachable:")) {
+      setStatusBadge(groqTestStatus, "Could not reach Groq", "status-unreachable");
+    } else {
+      setStatusBadge(groqTestStatus, "Unknown result", "status-error");
+    }
+  } catch (err) {
+    console.error("[Typr] test_groq_connection failed:", err);
+    setStatusBadge(groqTestStatus, "Could not run the test", "status-error");
+    showAppNotice("Could not test the Groq connection.", "error");
+  } finally {
+    groqTestBtn.disabled = false;
+  }
 });
 
 modeAuto.addEventListener("click", () => {

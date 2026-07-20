@@ -13,6 +13,7 @@ use typr_lib::downloader;
 use typr_lib::paste::{self, PasteOutcome};
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
+use typr_lib::transcribe_groq::{self, GroqKeyCheck};
 use typr_lib::transcribe_local;
 
 mod pill_hittest;
@@ -151,6 +152,27 @@ fn save_settings(
 #[tauri::command]
 fn list_microphones() -> Vec<audio::MicDevice> {
     audio::list_microphones()
+}
+
+/// Settings-panel "Test connection" action for the Groq API key. Reads the
+/// key from the currently-saved settings (never accepts one over the invoke
+/// boundary from a caller, so nothing keystroke-level ever crosses this
+/// command) and returns one of three distinct outcomes as a tagged string —
+/// "valid" / "rejected" / "unreachable:<reason>" / "empty" — so the frontend
+/// can show honest, distinct wording instead of a single pass/fail bit. The
+/// reason text passed through here is a status/error class (timeout, HTTP
+/// status), never the key itself — see check_groq_key's doc comment.
+#[tauri::command]
+async fn test_groq_connection(state: State<'_, AppState>) -> Result<String, String> {
+    let api_key = state.settings.lock().unwrap().groq_api_key.clone();
+    if api_key.trim().is_empty() {
+        return Ok("empty".to_string());
+    }
+    match transcribe_groq::check_groq_key(&api_key).await {
+        GroqKeyCheck::Valid => Ok("valid".to_string()),
+        GroqKeyCheck::Rejected => Ok("rejected".to_string()),
+        GroqKeyCheck::Unreachable(reason) => Ok(format!("unreachable:{}", reason)),
+    }
 }
 
 /// Settings-panel diagnostic: play a ping on demand regardless of the
@@ -636,6 +658,7 @@ fn main() {
             get_settings,
             save_settings,
             list_microphones,
+            test_groq_connection,
             preview_sound,
             get_recording_state,
             check_model_downloaded,

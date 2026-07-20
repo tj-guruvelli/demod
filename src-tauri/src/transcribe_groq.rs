@@ -1,5 +1,62 @@
 use reqwest::multipart;
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// Outcome of probing a Groq API key without uploading any audio. Three
+/// distinct states because they demand three different user fixes: a
+/// rejected key means "get a real key", an unreachable network means "check
+/// your connection", and conflating them (as a single "network error"
+/// string would) sends the user chasing the wrong fix.
+#[derive(Debug, PartialEq)]
+pub enum GroqKeyCheck {
+    Valid,
+    /// Groq answered and said no (401/403) — the key itself is bad.
+    Rejected,
+    /// No usable answer came back at all (timeout, DNS, offline, or an
+    /// unexpected non-auth status) — we never learned whether the key is
+    /// good or bad.
+    Unreachable(String),
+}
+
+/// Validate a Groq API key with a cheap, audio-free request: GET
+/// /openai/v1/models: 200 means the key is accepted, 401/403 means Groq
+/// rejected it, anything else (including a timeout or DNS failure) means we
+/// could not reach Groq at all and must not guess which is true.
+///
+/// Never logs or echoes `api_key` — reqwest sends it only as the
+/// Authorization header value, which is not part of the URL and does not
+/// appear in error messages below.
+pub async fn check_groq_key(api_key: &str) -> GroqKeyCheck {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return GroqKeyCheck::Unreachable(format!("Could not start request: {}", e)),
+    };
+
+    match client
+        .get("https://api.groq.com/openai/v1/models")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                GroqKeyCheck::Valid
+            } else if status.as_u16() == 401 || status.as_u16() == 403 {
+                GroqKeyCheck::Rejected
+            } else {
+                GroqKeyCheck::Unreachable(format!("Groq returned an unexpected status ({})", status))
+            }
+        }
+        Err(e) if e.is_timeout() => {
+            GroqKeyCheck::Unreachable("Timed out reaching Groq".to_string())
+        }
+        Err(e) => GroqKeyCheck::Unreachable(format!("Could not reach Groq: {}", e)),
+    }
+}
 
 pub async fn transcribe_groq(
     api_key: &str,
