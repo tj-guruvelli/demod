@@ -158,21 +158,20 @@
     },
     {
       "id": "US-012",
-      "title": "Recording waveform: solid flat stroke, heart-rate/radar motion (no gradient, no halo)",
-      "description": "As a user, I want the recording waveform to read as a SOLID line that sweeps like a heart-rate monitor or a radar detecting for voice, not a glowing gradient sine. TJ rejected the current look twice: 'why is it gradient?' then 'the wavelength is still a gradient color and not a solid deep color and its not animated like a heart rate monitor / or a radar detecting for voice'. Root cause of the perceived gradient was ctx.shadowBlur painting a fading halo around an already-flat stroke; that has been removed, so this story is about MOTION and HUE. Replace the travelling sine in src/overlay.html with an ECG-style trace: a mostly-flat baseline punctuated by a sharp QRS-like spike whose height is driven by the live mic RMS, sweeping left-to-right with a leading edge, OR a radar sweep reading of the same signal. Keep the existing rAF-only-while-listening rule and the real audio-level event as the amplitude source - never synthesise fake activity.",
+      "title": "Recording waveform: voice-level sound bars, single flat colour",
+      "description": "As a user I want the recording meter to be BARS whose height tracks my voice. History: a travelling sine was rejected ('why is it gradient?'), an ECG/heart-rate trace replaced it and was ALSO rejected on look, and TJ's final call was explicit: 'if it doesnt exist just use what you were before and use the sound bars that adjust height based on voice sensitivity'. THIS IS SHIPPED as of commit cf33157 - 14 bars on the existing canvas, height from the real RMS sample history, centre-weighted. DO NOT rebuild an ECG/radar trace; that shape was explicitly rejected by the user twice.",
       "acceptanceCriteria": [
-        "src/overlay.html canvas renderer draws an ECG/radar-style trace, not a continuous sine; amplitude still comes from the real 'audio-level' RMS event",
-        "ctx.shadowBlur is NOT set anywhere in the waveform renderer (a blurred halo reads as a gradient)",
-        "Stroke colour is a single flat value read from one :root custom property; no createLinearGradient, no per-segment colour variation",
-        "Measured contrast of the stroke against --pill-recording-bg is >= 4.5:1; record the measured number in the story notes",
-        "The rAF loop still runs ONLY while data-state=listening and stops on leaving it",
-        "Silence still visibly flatlines the trace",
-        "npm run build passes and cargo check passes (run unpiped, check the exit code)",
-        "cdp-smoke (typr-e2e) reports 25/25 against the freshly built exe"
+        "The listening overlay renders discrete BARS (not a stroked line/trace); height is driven by the real 'audio-level' RMS event",
+        "ctx.shadowBlur is NOT set in the renderer - a blurred halo reads as a gradient and was rejected as one",
+        "Bar fill is a single flat value read from one :root custom property; no gradient, no per-bar colour variation",
+        "Measured contrast of the bar colour against --pill-recording-bg is >= 4.5:1",
+        "The rAF loop runs ONLY while data-state=listening",
+        "Silence collapses the bars to the minimum-height floor",
+        "npm run build passes and cargo check passes (run unpiped, check the exit code)"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": "Hue is NOT settled: TJ asked for a 'solid deep color' but the existing cyan was chosen for measured contrast against the red recording pill, and deep hues on red contrast poorly. Implement the motion change, keep the colour behind a single token, and surface the measured contrast so TJ can pick the final hue. Do not silently invent a hue and call it done."
+      "passes": true,
+      "notes": "SHIPPED cf33157. 14 bars, BAR_COUNT at overlay.html. Colour: deep purple was MEASURED unusable - #6a0dad is 1.33:1 and #7c3aed is 2.16:1 against the old red pill (floor 4.5:1), so the 'or neon' branch was taken: recording pill body deep purple rgba(24,10,44,.94), bars neon violet #b14dff, measured 4.80:1. HONEST LIMIT: audio.rs emits ONE RMS float, not an FFT, so TJ's 'like a sound frequency' cannot be satisfied literally; each bar reads a different column of the real history instead of faking frequency bands. Verified visually via ../typr-e2e/wave-shot.mjs (CDP + in-page canvas capture): 3936 lit px, tallest bar 36px."
     },
     {
       "id": "US-013",
@@ -189,7 +188,7 @@
       ],
       "priority": 13,
       "passes": false,
-      "notes": ""
+      "notes": "BLOCKER FOUND BY SURVEY - read before implementing. There is NO canonical threshold to display. src-tauri/src/audio.rs defines NONE (LEVEL_EMIT_INTERVAL is an emit-rate cap, not a level gate). The only threshold in the codebase is SILENCE_GATE = 0.035 at src/overlay.html:531, and it is NOT applied to raw RMS - it gates a 'curved' value (levelToCurve: raw/peakEnv, peakEnv being a slow ADAPTIVE peak envelope, then ^0.42). So it means 'quieter than ~3.5% of the recent peak-normalised level', NOT a fixed loudness. TJ's request ('whatever threshold number you have set') presumes a fixed number that does not exist. Do NOT invent one and do NOT present SILENCE_GATE as an absolute threshold. Either surface it honestly as a relative/adaptive gate, or ask TJ whether he wants a real fixed dBFS threshold introduced in audio.rs first."
     }
   ]
 }
