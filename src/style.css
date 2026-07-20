@@ -170,6 +170,20 @@ body {
 }
 
 .nav-item {
+  /* These are real <button> elements so the sidebar is keyboard reachable
+     (ARIA tab pattern). The user-agent button defaults arrive with them -
+     light ButtonFace background, border, centred text, system font - and
+     must be cleared, or the sidebar renders as pale pills that fight the
+     dark skin. The hover/active rules below supply the only backgrounds
+     this control should ever have. */
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+
   display: flex;
   align-items: center;
   gap: 8px;
