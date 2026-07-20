@@ -1,0 +1,104 @@
+{
+  "project": "Typr",
+  "branchName": "ralph/production-wave2",
+  "description": "Wave 2: make Typr production-ready as a full Wispr Flow-class product. Repo root C:/Users/guruv/tools/typr. Spec remains docs/RESEARCH-wispr-superwhisper.md. All wave-1 architecture rules still apply: transform/opacity-only overlay animation, no polling loops, Rust -> webview eval/emit state flow, webview is a pure renderer, NEVER remove src-tauri/.cargo/config.toml or lib-patch/ or sdk-patch/. Quality gate per story: 'npm run build' passes AND 'cargo check' in src-tauri passes. Full 'npm run tauri build' only in the final story. Run this wave only after the wave-1 branch (ralph/wispr-parity) is merged to main; branch this wave from main. To start: copy this file over prd.json in the repo root (archive the old one), then run ralph with a pinned cheap model: ANTHROPIC_MODEL=claude-sonnet-5 bash ~/.claude/ralph/ralph.sh --tool claude 9 from the repo root.",
+  "userStories": [
+    {
+      "id": "W2-001",
+      "title": "Model catalog: add tiny and large-v3-turbo with honest labels",
+      "description": "As a user, I want real model choices like SuperWhisper's picker (research section 6), including local large-v3-turbo which the user explicitly requested on 2026-07-19. Extend transcribe_local.rs model_filename/model_download_url with 'tiny' (ggml-tiny.bin, ~75MB) and 'large-v3-turbo' (ggml-large-v3-turbo.bin, ~1.6GB). Update the Engine model dropdown to show all four with size labels and a speed-vs-accuracy hint line. Verify the new names flow through check_model_downloaded/download_model and the whisper-server respawn.",
+      "acceptanceCriteria": [
+        "transcribe_local.rs maps tiny and large-v3-turbo to correct ggml filenames and huggingface URLs",
+        "Model dropdown shows Tiny/Small/Medium/Large-v3-Turbo with sizes and tradeoff hints",
+        "Download + server respawn work model-name driven, no hardcoded small/medium logic",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-002",
+      "title": "First-run onboarding: mic test, model download, hotkey practice",
+      "description": "As a new user, I want to be dictating within 2 minutes (research section 4). If no local model exists and no Groq key is saved, the main window shows onboarding instead of settings: (1) mic picker with LIVE level bars reusing the real audio-level RMS event, (2) model download with progress (default tiny for fast onboarding), (3) hotkey practice: in-app textbox + 'Hold Ctrl+Shift+Space and speak'; completes only after one successful dictation lands there. Persist onboarding_done in Settings; never show again.",
+      "acceptanceCriteria": [
+        "Fresh state shows onboarding; onboarding_done persists and suppresses it forever after",
+        "Mic step uses the real audio-level event, not fake animation",
+        "Finish gate requires one real successful dictation into the practice textbox",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-003",
+      "title": "Transcription history with retention setting",
+      "description": "As a user, I want to recover past dictations. Append (text, ISO timestamp, target app process name from the US-007 focus capture) to history.json after each successful transcription, cap 200 entries. New History section in the sidebar: newest-first rows (time, first line, target app), click-to-copy, Re-paste button via the existing paste path, per-row delete, Clear All. Setting history_retention_days (default 30, 0 = keep nothing) enforced by a startup purge. NO audio is ever retained (research: SuperWhisper is criticized for exactly that; text-only is the privacy stance).",
+      "acceptanceCriteria": [
+        "Successful dictations append to history.json; failures do not; temp audio always deleted",
+        "History UI: copy, re-paste, delete, clear-all all work against the real file",
+        "history_retention_days persisted and enforced on startup, no polling",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-004",
+      "title": "System tray, close-to-tray, launch at login",
+      "description": "As a user, I expect a dictation utility to live in the tray, not die when I close a window. Tray icon (tauri tray-icon, reuse app icon) with menu: Open Typr, Show/Hide pill, Start/Stop dictation, Quit (only full-exit path, kills whisper-server via existing handler). Settings window CloseRequested hides instead of exiting. 'Launch at login' toggle in General wired to the HKCU Run key pointing at the installed exe; on load, reflect true state and absorb the legacy Startup-folder shortcut that already exists on this machine (manage one mechanism, remove the other honestly).",
+      "acceptanceCriteria": [
+        "Tray menu's four items work; Quit is the only process exit",
+        "Closing settings leaves hotkey + pill + server running",
+        "Launch-at-login toggle reads/writes HKCU Run and reconciles the old Startup shortcut",
+        "npm run build passes and cargo check passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-005",
+      "title": "Secure Groq key storage via DPAPI and key test button",
+      "description": "As a user, I want my API key stored safely (research section 5: SuperWhisper stores keys plaintext and gets called out for it). Encrypt with Windows DPAPI (CryptProtectData, current-user scope), store base64 blob as groq_api_key_enc in config.json, decrypt transparently on load, migrate an existing plaintext key on first load and delete the plaintext field. Add a 'Test key' button calling Groq's models endpoint, showing ok/failure inline; the key never appears in logs or console.",
+      "acceptanceCriteria": [
+        "No plaintext key in config.json after first run; DPAPI round-trip works; migration covered",
+        "Test key hits the real Groq endpoint and reports inline without logging the key",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-006",
+      "title": "Failure honesty: server watchdog and error pill state",
+      "description": "As a user, I need to know when dictation is broken instead of silence (user's standing rule: never fake, never silent). Add an 'error' pill state (pre-mounted layer, red tint, terse reason slot) per the wave-1 pattern; every Err path in stop_and_transcribe and the hotkey handlers must transition the overlay out of listening/processing (the pill must never stick in Transcribing). Detect whisper-server child exit via the shell plugin receiver: one auto-restart, then yellow status dot + error state if it dies again within a minute (no restart storm).",
+      "acceptanceCriteria": [
+        "error state exists as a pre-mounted crossfade layer with a message slot",
+        "Grep-verifiable: no failure path leaves the overlay in listening/processing",
+        "whisper-server exit triggers exactly one auto-restart with surfaced backoff state",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "W2-007",
+      "title": "Release 0.2.0: full build, install, end-to-end verification",
+      "description": "Release gate: bump version to 0.2.0 in tauri.conf.json, package.json, Cargo.toml. Run full 'npm run tauri build'. Silent-install the NSIS setup (/S) over AppData/Local/Typr. Launch the installed exe and verify like wave-1 US-011: typr + whisper-server processes, settings + overlay windows via user32 enumeration, screenshot to file. Confirm launch-at-login points at the installed exe. Record every result honestly in progress.txt; unverifiable items are stated as unverified, never claimed.",
+      "acceptanceCriteria": [
+        "0.2.0 in all three manifests and the installer filename",
+        "tauri build exit 0; silent install; installed exe verified running with both windows",
+        "All W2 stories pass=true with findings in progress.txt",
+        "cargo check passes and npm run build passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
