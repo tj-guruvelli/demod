@@ -12,12 +12,19 @@
 - [ ] Tripwire clean: `git diff <branchpoint>..ui/us012 --stat -- src-tauri/ src/overlay.html`
       is EMPTY (proves the UI track never crossed into Rust-owned files).
 - [ ] `invoke()` command-name set on the UI branch is identical to the branch point.
-- [ ] `cargo test --lib` EXIT=0. Run it UNPIPED and read the exit code:
+- [ ] `cargo test --lib` EXIT=0. Run it UNPIPED and read `$LASTEXITCODE`:
       ```powershell
-      cargo test --lib *> gate.txt; if ($?) { "EXIT=0" } else { "EXIT=$LASTEXITCODE" }
+      cargo test --lib *> gate.txt
+      "EXIT=$LASTEXITCODE"
       ```
-      A gate piped into a pager/`Select-Object` reports that command's status, not
-      cargo's, and will show green on code that does not compile.
+      Two traps, both of which have already produced a false green in this project:
+      - Piping a gate into a pager/`Select-Object`/`tail` reports THAT command's
+        status, not cargo's, and shows green on code that does not compile.
+      - Do NOT gate on `$?` here. Redirecting a native exe's stderr in PowerShell 5.1
+        wraps each line in a NativeCommandError and sets `$?` to `$false` even when the
+        process exited 0 - and cargo writes progress to stderr, so `if ($?)` would
+        report failure on a perfectly good build. `$LASTEXITCODE` is the real exit code
+        and is unaffected.
 
 ## 1. Merged-binary integration gate (the step nobody had)
 
@@ -58,7 +65,7 @@ taskkill /IM typr.exe /F
       ```
 - [ ] Copy the new binary in, then relaunch:
       ```powershell
-      Copy-Item "<path-to-freshly-built-typr.exe>" "$env:LOCALAPPDATA\Typr\typr.exe" -Force
+      Copy-Item "C:\Users\guruv\tools\typr\src-tauri\target\release\typr.exe" "$env:LOCALAPPDATA\Typr\typr.exe" -Force
       & "$env:LOCALAPPDATA\Typr\typr.exe"
       ```
 

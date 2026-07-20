@@ -5,7 +5,7 @@
 > (US-007) will ever get. CDP cannot synthesize global hotkeys or real focus changes,
 > so hotkey gestures (tap/hold/auto), the focus-guard paste decision, and the quick
 > menu have ZERO automated coverage. If you skip a scenario here, that behavior is
-> simply unverified — there is no other test catching it.
+> simply unverified; there is no other test catching it.
 
 Execute the full list during the dogfood window immediately after deploy, with the
 old exe still present as `typr.exe.bak`. For every scenario, dictate a distinctive
@@ -29,8 +29,11 @@ phrase so a misplaced paste is unmissable.
 8. Rapid re-dictation: two cycles back-to-back into different apps. No cross-paste.
 9. Elevated-window target: dictate into a window running as admin (e.g. elevated
    Notepad). EXPECTED: either paste works or fallback engages - no silent loss.
-10. Paste-fallback recovery: trigger #2, then click the pill's Paste affordance (if
-    US-007 shipped one) or Ctrl+V manually - transcript intact on clipboard.
+10. Paste-fallback recovery: trigger #2, then press Ctrl+V manually in the intended
+    window; the transcript must still be intact on the clipboard. Note there is NO
+    click-to-paste button on the fallback layer - it is text only ("Copied, press
+    Ctrl+V to paste"), verified in src/overlay.html. The quick menu's "Paste last
+    transcript" (scenario 11) is the other recovery route.
 11. Quick-menu paste-last (US-009): dictate, then menu > Paste last transcript into
     a fresh Notepad. Lands correctly.
 12. Repeat #2 in a real messaging app (the original bug's blast radius). NO paste.
