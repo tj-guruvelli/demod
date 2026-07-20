@@ -30,6 +30,19 @@
   --font:           'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ease-in:        150ms ease-in;
   --ease-out:       150ms ease-out;
+
+  /* Channel triples so a status colour has ONE definition. Tints below are
+     written rgba(var(--x-rgb), a) instead of restating the literal, which is
+     how --green/--red/--yellow silently grew duplicate copies. */
+  --green-rgb:      111, 224, 140;
+  --yellow-rgb:     224, 195, 65;
+  --red-rgb:        242, 184, 184;
+  /* White overlays. Same family as --border/--border-strong, named by ROLE so
+     a background and a border no longer share an unrelated token by accident. */
+  --surface-subtle: rgba(255, 255, 255, 0.05);
+  --surface-raised: rgba(255, 255, 255, 0.14);
+  --border-hover:   rgba(255, 255, 255, 0.4);
+  --ring-soft:      rgba(255, 255, 255, 0.08);
 }
 
 * {
@@ -127,24 +140,24 @@ body {
   border-radius: 50%;
   background: var(--green);
   flex-shrink: 0;
-  box-shadow: 0 0 6px rgba(111, 224, 140, 0.45);
+  box-shadow: 0 0 6px rgba(var(--green-rgb), 0.45);
   transition: background-color var(--ease-out), box-shadow var(--ease-out);
 }
 
 #status-dot.ready {
   background: var(--green);
-  box-shadow: 0 0 6px rgba(111, 224, 140, 0.45);
+  box-shadow: 0 0 6px rgba(var(--green-rgb), 0.45);
 }
 
 #status-dot.recording {
   background: var(--red);
-  box-shadow: 0 0 6px rgba(242, 184, 184, 0.5);
+  box-shadow: 0 0 6px rgba(var(--red-rgb), 0.5);
   animation: pulse 1s ease-in-out infinite;
 }
 
 #status-dot.transcribing {
   background: var(--yellow);
-  box-shadow: 0 0 6px rgba(224, 195, 65, 0.45);
+  box-shadow: 0 0 6px rgba(var(--yellow-rgb), 0.45);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -289,9 +302,9 @@ body {
   margin: 20px 36px -8px;
   max-width: 640px;
   padding: 10px 14px;
-  border: 1px solid rgba(242, 184, 184, 0.35);
+  border: 1px solid rgba(var(--red-rgb), 0.35);
   border-radius: var(--radius);
-  background: rgba(242, 184, 184, 0.08);
+  background: rgba(var(--red-rgb), 0.08);
   color: var(--text);
   font-size: 12px;
   line-height: 1.4;
@@ -300,8 +313,8 @@ body {
 /* Advisory rather than failure: amber, not red. Used when a setting combination
    is legal but has a consequence worth naming (e.g. no recording indicator). */
 #app-notice[data-kind="warn"] {
-  border-color: rgba(224, 195, 65, 0.35);
-  background: rgba(224, 195, 65, 0.08);
+  border-color: rgba(var(--yellow-rgb), 0.35);
+  background: rgba(var(--yellow-rgb), 0.08);
 }
 
 #app-notice[hidden] {
@@ -452,8 +465,8 @@ select {
 
 select:focus,
 input[type="password"]:focus {
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+  border-color: var(--border-hover);
+  box-shadow: 0 0 0 2px var(--ring-soft);
 }
 
 input[type="password"]::placeholder {
@@ -494,7 +507,7 @@ input[type="password"]::placeholder {
 }
 
 .toggle-btn.active {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--surface-raised);
   color: #fff;
 }
 
@@ -547,8 +560,8 @@ input[type="password"]::placeholder {
 }
 
 .switch.active {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
 }
 
 .switch.active .switch-knob {
@@ -630,8 +643,8 @@ input[type="password"]::placeholder {
 
 .model-status .gate-badge.downloaded {
   color: var(--green);
-  border-color: rgba(111, 224, 140, 0.3);
-  background: rgba(111, 224, 140, 0.08);
+  border-color: rgba(var(--green-rgb), 0.3);
+  background: rgba(var(--green-rgb), 0.08);
 }
 
 /* ── Download progress ───────────────────────────────── */
@@ -678,7 +691,7 @@ kbd {
   align-items: center;
   gap: 5px;
   padding: 4px 9px 4px 7px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   color: var(--text-tertiary-strong);
@@ -763,7 +776,7 @@ kbd {
 /* ── Selection ──────────────────────────────────────── */
 
 ::selection {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--surface-raised);
   color: var(--text);
 }
 
@@ -810,7 +823,7 @@ input:focus-visible,
 
 select:focus-visible,
 input[type="password"]:focus-visible {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--border-hover);
 }
 
 /* ── Reduced motion ────────────────────────────────────
