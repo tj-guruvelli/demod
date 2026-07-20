@@ -17,9 +17,16 @@ phrase so a misplaced paste is unmissable.
 2. THE historical bug: start dictation in Notepad, while "Transcribing..." shows,
    Alt-Tab to a browser text field. EXPECTED: NO paste into the browser; clipboard
    holds the transcript; overlay shows paste-fallback state.
-3. Council scenario (First Principles): start dictation, and while transcribing,
-   OPEN TYPR'S OWN SETTINGS WINDOW (tray/menu). EXPECTED: no paste into the settings
-   window's controls; fallback path as in #2.
+3. [AUTOMATED - typr-e2e/focus-guard-check.mjs, 7/7 passing] Council scenario
+   (First Principles): start dictation, and while transcribing, OPEN TYPR'S OWN
+   SETTINGS WINDOW. EXPECTED: no paste into the settings window's controls.
+   The harness produces a REAL transcript using the Windows speech synthesizer
+   through the speakers, which this machine's mic array picks up. The
+   transcription is garbled, and that does not matter: the test is about WHERE a
+   transcript lands, not what it says. It steals the foreground to the settings
+   window mid-transcription with the caret in the Groq key field - the exact
+   control a stray Ctrl+V would hit - and asserts that field is unchanged. The
+   real config is captured and restored, verified afterwards.
 4. Focus change DURING recording (before stop): start in Notepad, Alt-Tab mid-speech,
    Alt-Tab back, stop. EXPECTED: paste lands in Notepad (focus at stop == focus at paste).
 5. Push-to-talk variant of #2 (hold key, release after switching apps).
@@ -69,21 +76,25 @@ Full deploy/restore commands (PowerShell) live there; summary:
 
 ## Which of these actually need a human, and in what order
 
-Scenario 13 is automated (see above). Everything else here needs a person,
-because CDP cannot synthesize a global hotkey, real speech, or a genuine
-foreground-window change - and those three ARE the feature.
+Scenarios 3 and 13 are automated and passing. Two claims in the header above
+turned out to be wrong and are corrected here: CDP cannot synthesize speech or a
+foreground change, but the SHELL can - the Windows speech synthesizer plus
+AppActivate covers both, and garbled transcription is fine when the assertion is
+about paste destination rather than content.
 
-Do them in this order; the first two carry almost all the risk:
+What genuinely still needs a person, in risk order:
 
-1. **Scenario 2** - the historical bug itself. Dictate, Alt-Tab while
-   "Transcribing" shows, confirm NOTHING pastes into the other window.
-2. **Scenario 3** - the same thing but with Typr's OWN settings window stealing
-   focus. Found by an adversarial design review; it is the one case where the
-   app can victimise itself.
-3. Scenarios 5 and 6 - the push-to-talk and tap-toggle variants of 2.
-4. Scenario 12 - repeat 2 in a real messaging app, the original blast radius.
-5. The rest (1, 4, 7-11, 14) are lower risk and can be done as you use the app
-   normally during the dogfood day.
+1. **Scenario 2** - dictate, Alt-Tab to another app while "Transcribing" shows,
+   confirm nothing pastes there. Its code path is the SAME one scenario 3 now
+   covers automatically (a foreign foreground window fails the hwnd+pid check
+   and falls back), so this is substantially though not literally verified.
+2. **Scenarios 5 and 6** - push-to-talk and tap-toggle variants. These need a
+   real HELD or TAPPED global hotkey, which is the one thing still unreachable:
+   toggle_recording bypasses the gesture state machine entirely, so the
+   tap/hold discrimination itself is untested outside its unit tests.
+3. **Scenario 12** - repeat 2 in a real messaging app, the original blast radius.
+4. The rest (1, 4, 7-11, 14) are lower risk; do them as you use the app during
+   the dogfood day.
 
-If 2, 3, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do
-not retry on the daily driver.
+If 2, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do not
+retry on the daily driver.
