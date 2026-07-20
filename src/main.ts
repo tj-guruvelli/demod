@@ -91,9 +91,19 @@ function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = 
     );
   }
   next.style.display = "block";
-  // rAF so the browser commits `display:block` before the class flips —
+  // rAF so the browser commits `display:block` before the class flips -
   // otherwise the opacity/transform transition has no paint to animate from.
-  requestAnimationFrame(() => next.classList.add("active"));
+  //
+  // The timeout is not redundant. `.active` carries opacity:1, so the pane is
+  // display:block but INVISIBLE until this callback runs - and rAF is paused
+  // in hidden, minimised or occluded windows. Measured directly: in a
+  // backgrounded window rAF did not fire within 600ms and the pane sat at
+  // opacity 0. Never let a functional visibility change depend on a frame
+  // being painted; the animation is decoration, the content is not.
+  // Whichever fires first wins; classList.add is idempotent.
+  const reveal = () => next.classList.add("active");
+  requestAnimationFrame(reveal);
+  setTimeout(reveal, 60);
 }
 
 navItems.forEach((item) => {
@@ -233,6 +243,7 @@ function setEngine(engine: string) {
   engineCloud.setAttribute("aria-checked", String(!isLocal));
   localSettings.classList.toggle("hidden", engine !== "local");
   cloudSettings.classList.toggle("hidden", engine !== "cloud");
+  refreshAdvisories();
 }
 
 function setRecordingMode(mode: string) {
@@ -249,35 +260,42 @@ function setInteractionSounds(enabled: boolean) {
   currentSettings.interactionSounds = enabled;
   soundsSwitch.classList.toggle("active", enabled);
   soundsSwitch.setAttribute("aria-checked", String(enabled));
-  warnIfNoRecordingFeedback();
+  refreshAdvisories();
 }
 
 function setOverlayVisible(enabled: boolean) {
   currentSettings.overlayVisible = enabled;
   overlaySwitch.classList.toggle("active", enabled);
   overlaySwitch.setAttribute("aria-checked", String(enabled));
-  warnIfNoRecordingFeedback();
+  refreshAdvisories();
 }
 
-/// The overlay and the start/stop sounds are the only two signals that the
-/// microphone is live. They are independent settings, so both can be off - and
-/// then pressing the hotkey opens the mic with no indication whatsoever. For an
-/// always-listening dictation tool that is a trust problem, not a preference,
-/// so say it plainly rather than silently allowing a silent hot mic.
-/// Not blocked: it is the user's machine and their call. Just never a surprise.
-function warnIfNoRecordingFeedback() {
+/// Single owner of the advisory state. Two independent warnings that each
+/// cleared "the" notice stomped each other, and a successful save wiped one
+/// of them outright - so all advisory decisions live here, with explicit
+/// precedence, and every caller just re-runs this.
+///
+/// Errors outrank advice: a real failure is never replaced by a hint. Among
+/// advisories, cloud-without-a-key wins, because dictation will fail outright
+/// rather than merely fail to show something.
+function refreshAdvisories() {
+  if (appNotice.dataset.kind === "error") return;
+  const noKey =
+    currentSettings.engine === "cloud" && (currentSettings.groqApiKey ?? "").trim() === "";
   const silent =
     currentSettings.overlayVisible === false && currentSettings.interactionSounds === false;
-  if (silent) {
+  if (noKey) {
+    showAppNotice("Groq Cloud is selected but no API key is set, so dictation will fail.", "warn");
+  } else if (silent) {
     showAppNotice(
       "With both the overlay and interaction sounds off, nothing will show that Typr is recording.",
       "warn"
     );
   } else if (appNotice.dataset.kind === "warn") {
-    // Only clear our own warning, never an error someone else surfaced.
     clearAppNotice();
   }
 }
+
 
 // Per-model cards: downloaded-vs-available state derived ONLY from the existing
 // check_model_downloaded invoke (called once per catalog entry \u2014 no new command).
@@ -351,7 +369,10 @@ async function saveSettings() {
   currentSettings.groqApiKey = groqKey.value;
   try {
     await invoke("save_settings", { settings: currentSettings });
-    clearAppNotice();
+    // Clear only a previous FAILURE. Advisories describe the settings as they
+    // now are, so a successful save is exactly when they should still stand.
+    if (appNotice.dataset.kind === "error") clearAppNotice();
+    refreshAdvisories();
   } catch (err) {
     // The control has already moved on screen, so staying silent here would
     // leave the user believing a setting persisted when it did not.
@@ -404,6 +425,12 @@ modelList.addEventListener("click", async (e) => {
 });
 
 groqKey.addEventListener("change", () => saveSettings());
+// Live, not just on commit: the warning should disappear as soon as a key is
+// typed, rather than persisting until the field loses focus.
+groqKey.addEventListener("input", () => {
+  currentSettings.groqApiKey = groqKey.value;
+  refreshAdvisories();
+});
 
 modeAuto.addEventListener("click", () => {
   setRecordingMode("auto");
