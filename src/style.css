@@ -9,7 +9,15 @@
   --surface-active: rgba(255, 255, 255, 0.1);
   --text:           #eaeaea;
   --text-secondary: #9a9a9a;
-  --text-tertiary:  #5a5a5a;
+  /* AA fix (WCAG audit): #5a5a5a measured 2.67:1 on card/sidebar backgrounds
+     for 11px text - fails AA (needs 4.5:1, no large-text exemption at this
+     size). Raised to #808080 (~4.5-4.9:1 across surface/sidebar/solid bgs).
+     --text-tertiary-strong is a documented second step for the honesty
+     "Not available" gate-badge, which needs to read as more prominent than
+     plain muted text since it explains *why* a feature is off. */
+  --text-tertiary:        #808080;
+  --text-tertiary-strong: #8f8f8f;
+  --focus-ring:     rgba(255, 255, 255, 0.9);
   --green:          #6fe08c;
   --blue:           #4a9ff5;
   --yellow:         #e0c341;
@@ -619,7 +627,7 @@ kbd {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-strong);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -703,4 +711,75 @@ kbd {
 ::selection {
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
+}
+
+/* ── Focus visibility ─────────────────────────────────
+   No element in this UI had a focus ring before this pass (grep for
+   focus-visible was 0). Never `outline: none` without a replacement - this
+   IS the replacement. --focus-ring is near-white against every background
+   in this palette (bg/sidebar-bg/surface are all near-black), so it clears
+   3:1 against adjacent colors everywhere it's used. Kept as one generic
+   rule plus shape-aware overrides so the ring reads as intentional against
+   pill/rounded controls instead of a plain rectangle. */
+
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.toggle-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--radius-pill);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.model-status .gate-badge:focus-visible,
+.btn-primary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+select:focus-visible,
+input[type="password"]:focus-visible {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── Reduced motion ────────────────────────────────────
+   Targets the actual transform/animation sources in this file (verified via
+   grep: .content-section slide, .switch-knob translateX, the recording/
+   transcribing status-dot pulse). Opacity transitions are left alone per
+   spec (non-vestibular); transforms and looping animations are removed. */
+
+@media (prefers-reduced-motion: reduce) {
+  .content-section,
+  .content-section.active,
+  .content-section.leaving {
+    transform: none !important;
+    transition: opacity var(--ease-out) !important;
+  }
+
+  .switch .switch-knob,
+  .switch.active .switch-knob {
+    transition: background-color var(--ease-out) !important;
+  }
+
+  #status-dot.recording,
+  #status-dot.transcribing {
+    animation: none !important;
+  }
 }

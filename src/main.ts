@@ -51,37 +51,78 @@ const footerSidecar = document.getElementById("footer-sidecar")!;
 const footerModel = document.getElementById("footer-model")!;
 const footerHotkey = document.getElementById("footer-hotkey")!;
 
-// Section navigation — 150ms opacity/transform crossfade (matches overlay.html's
-// own ease-in/ease-out grammar) instead of an instant display swap.
-const navItems = document.querySelectorAll(".nav-item");
+// Section navigation — role=tablist/tab/tabpanel pattern (chosen over plain
+// focusable buttons because the sidebar genuinely IS a section switcher with
+// exactly one visible panel at a time — the ARIA tab pattern maps 1:1 onto
+// that model). 150ms opacity/transform crossfade (matches overlay.html's own
+// ease-in/ease-out grammar) instead of an instant display swap.
+const navItems = Array.from(document.querySelectorAll<HTMLElement>(".nav-item"));
+
+function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = {}) {
+  const target = item.getAttribute("data-section");
+  const current = document.querySelector(".content-section.active") as HTMLElement | null;
+  const next = document.getElementById(`section-${target}`) as HTMLElement | null;
+  if (!next || next === current) {
+    if (focus) item.focus();
+    return;
+  }
+
+  navItems.forEach((n) => {
+    n.classList.remove("active");
+    n.setAttribute("aria-selected", "false");
+    n.tabIndex = -1;
+  });
+  item.classList.add("active");
+  item.setAttribute("aria-selected", "true");
+  item.tabIndex = 0;
+  if (focus) item.focus();
+
+  if (current) {
+    current.classList.add("leaving");
+    current.classList.remove("active");
+    current.addEventListener(
+      "transitionend",
+      () => {
+        current.classList.remove("leaving");
+        current.style.display = "none";
+      },
+      { once: true }
+    );
+  }
+  next.style.display = "block";
+  // rAF so the browser commits `display:block` before the class flips —
+  // otherwise the opacity/transform transition has no paint to animate from.
+  requestAnimationFrame(() => next.classList.add("active"));
+}
 
 navItems.forEach((item) => {
-  item.addEventListener("click", () => {
-    const target = item.getAttribute("data-section");
-    const current = document.querySelector(".content-section.active") as HTMLElement | null;
-    const next = document.getElementById(`section-${target}`) as HTMLElement | null;
-    if (!next || next === current) return;
+  item.addEventListener("click", () => activateTab(item, { focus: false }));
+});
 
-    navItems.forEach((n) => n.classList.remove("active"));
-    item.classList.add("active");
+// Roving tabindex arrow-key navigation — required for the tab pattern to be
+// keyboard-usable at all: Up/Down (and Left/Right) move between sections,
+// Home/End jump to the first/last. Only the active tab is in the Tab order;
+// arrow keys move both focus and selection between the others.
+document.getElementById("sidebar-nav")!.addEventListener("keydown", (e) => {
+  const key = (e as KeyboardEvent).key;
+  const currentIndex = navItems.findIndex((n) => n === document.activeElement);
+  if (currentIndex === -1) return;
 
-    if (current) {
-      current.classList.add("leaving");
-      current.classList.remove("active");
-      current.addEventListener(
-        "transitionend",
-        () => {
-          current.classList.remove("leaving");
-          current.style.display = "none";
-        },
-        { once: true }
-      );
-    }
-    next.style.display = "block";
-    // rAF so the browser commits `display:block` before the class flips —
-    // otherwise the opacity/transform transition has no paint to animate from.
-    requestAnimationFrame(() => next.classList.add("active"));
-  });
+  let nextIndex: number | null = null;
+  if (key === "ArrowDown" || key === "ArrowRight") {
+    nextIndex = (currentIndex + 1) % navItems.length;
+  } else if (key === "ArrowUp" || key === "ArrowLeft") {
+    nextIndex = (currentIndex - 1 + navItems.length) % navItems.length;
+  } else if (key === "Home") {
+    nextIndex = 0;
+  } else if (key === "End") {
+    nextIndex = navItems.length - 1;
+  }
+
+  if (nextIndex !== null) {
+    e.preventDefault();
+    activateTab(navItems[nextIndex]);
+  }
 });
 
 // Window drag — titlebar and sidebar empty space
@@ -171,8 +212,11 @@ async function loadSettings() {
 
 function setEngine(engine: string) {
   currentSettings.engine = engine;
-  engineLocal.classList.toggle("active", engine === "local");
-  engineCloud.classList.toggle("active", engine === "cloud");
+  const isLocal = engine === "local";
+  engineLocal.classList.toggle("active", isLocal);
+  engineLocal.setAttribute("aria-checked", String(isLocal));
+  engineCloud.classList.toggle("active", !isLocal);
+  engineCloud.setAttribute("aria-checked", String(!isLocal));
   localSettings.classList.toggle("hidden", engine !== "local");
   cloudSettings.classList.toggle("hidden", engine !== "cloud");
 }
@@ -180,8 +224,11 @@ function setEngine(engine: string) {
 function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
   modeAuto.classList.toggle("active", mode === "auto");
+  modeAuto.setAttribute("aria-checked", String(mode === "auto"));
   modeToggle.classList.toggle("active", mode === "toggle");
+  modeToggle.setAttribute("aria-checked", String(mode === "toggle"));
   modePtt.classList.toggle("active", mode === "push-to-talk");
+  modePtt.setAttribute("aria-checked", String(mode === "push-to-talk"));
 }
 
 function setInteractionSounds(enabled: boolean) {
