@@ -9,6 +9,7 @@ interface Settings {
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
+  language: string;
   interactionSounds?: boolean;
   overlayVisible?: boolean;
   // Already deserialized server-side (pill_hittest.rs) — read-only display only,
@@ -45,6 +46,10 @@ const modeAuto = document.getElementById("mode-auto")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
+const hotkeyCapture = document.getElementById("hotkey-capture") as HTMLButtonElement;
+const hotkeyMessage = document.getElementById("hotkey-message")!;
+const localLanguageSettings = document.getElementById("local-language-settings")!;
+const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
 const soundsSwitch = document.getElementById("sounds-switch")!;
 const overlaySwitch = document.getElementById("overlay-switch")!;
 const dockPositionText = document.getElementById("dock-position-text")!;
@@ -168,6 +173,27 @@ const MODEL_CATALOG = [
 // disables while any download is in flight (shared progress bar under the list).
 let activeDownloadId: string | null = null;
 
+// Common languages whisper.cpp supports well, plus "auto" for detection.
+// Passed straight through to the Rust `language` setting -> whisper.cpp `-l`
+// (transcribe_local.rs); the Groq cloud engine hardcodes "en" server-side and
+// has no language setting, which is why this card is local-engine only.
+const LANGUAGE_CATALOG = [
+  { id: "auto", label: "Auto-detect" },
+  { id: "en", label: "English" },
+  { id: "es", label: "Spanish" },
+  { id: "fr", label: "French" },
+  { id: "de", label: "German" },
+  { id: "it", label: "Italian" },
+  { id: "pt", label: "Portuguese" },
+  { id: "nl", label: "Dutch" },
+  { id: "ru", label: "Russian" },
+  { id: "zh", label: "Chinese" },
+  { id: "ja", label: "Japanese" },
+  { id: "ko", label: "Korean" },
+  { id: "hi", label: "Hindi" },
+  { id: "ar", label: "Arabic" },
+] as const;
+
 function formatHotkey(hotkey: string): string {
   const tokenMap: Record<string, string> = {
     CmdOrCtrl: "Ctrl",
@@ -223,6 +249,17 @@ async function loadSettings() {
   hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
   footerHotkey.textContent = formatHotkey(currentSettings.hotkey);
 
+  // Language (local engine only; see setEngine)
+  if (languageSelect.options.length === 0) {
+    LANGUAGE_CATALOG.forEach((l) => {
+      const option = document.createElement("option");
+      option.value = l.id;
+      option.textContent = l.label;
+      languageSelect.appendChild(option);
+    });
+  }
+  setLanguage(currentSettings.language ?? "en");
+
   // Interaction sounds
   setInteractionSounds(currentSettings.interactionSounds ?? true);
 
@@ -247,7 +284,15 @@ function setEngine(engine: string) {
   engineCloud.setAttribute("aria-checked", String(!isLocal));
   localSettings.classList.toggle("hidden", engine !== "local");
   cloudSettings.classList.toggle("hidden", engine !== "cloud");
+  // Language only reaches whisper.cpp (transcribe_local.rs); the Groq cloud
+  // path hardcodes "en" server-side and has no language parameter at all.
+  localLanguageSettings.classList.toggle("hidden", engine !== "local");
   refreshAdvisories();
+}
+
+function setLanguage(language: string) {
+  currentSettings.language = language;
+  languageSelect.value = language;
 }
 
 function setRecordingMode(mode: string) {
@@ -460,6 +505,150 @@ overlaySwitch.addEventListener("click", () => {
   setOverlayVisible(!(currentSettings.overlayVisible ?? true));
   saveSettings();
 });
+
+languageSelect.addEventListener("change", () => {
+  setLanguage(languageSelect.value);
+  saveSettings();
+});
+
+// ── Sound preview (diagnostic: "the sounds dont play") ────────────────
+// Works regardless of the interaction-sounds switch above - that is the
+// whole point. A rejection from Windows is a real error and must surface,
+// not be swallowed; success is NOT claimed as "you heard it" (PlaySound
+// returning true only means the OS accepted the buffer, not that it was
+// audible), so there is deliberately no success message here.
+document.querySelectorAll<HTMLButtonElement>("[data-preview]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const which = btn.getAttribute("data-preview")!;
+    try {
+      await invoke("preview_sound", { which });
+      if (appNotice.dataset.kind === "error") clearAppNotice();
+    } catch (err) {
+      console.error("[Typr] preview_sound failed:", err);
+      showAppNotice(String(err), "error");
+    }
+  });
+});
+
+// ── Hotkey capture ──────────────────────────────────────────────────
+// Replaces the old read-only kbd: click the control, press a combination,
+// it commits on a valid combo or Escape cancels (keeping the existing
+// binding). Persistence + the actual re-registration (with rollback on
+// failure) happens in Rust via set_hotkey - this only builds the
+// accelerator string and reports what the backend says.
+const HOTKEY_MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "OS"]);
+
+// Named keys the Tauri accelerator parser accepts, keyed by KeyboardEvent.key.
+const HOTKEY_NAMED_KEYS: Record<string, string> = {
+  " ": "Space",
+  Escape: "Escape",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Enter: "Return",
+  Tab: "Tab",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Insert: "Insert",
+  CapsLock: "CapsLock",
+};
+
+function hotkeyPressedModifiers(e: KeyboardEvent): string[] {
+  const mods: string[] = [];
+  if (e.ctrlKey || e.metaKey) mods.push("CmdOrCtrl");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.altKey) mods.push("Alt");
+  return mods;
+}
+
+/// Maps a non-modifier key press to its accelerator token, or null if it
+/// isn't one the parser accepts as a final key.
+function hotkeyKeyToken(e: KeyboardEvent): string | null {
+  const key = e.key;
+  if (key.length === 1) return key.toUpperCase();
+  if (HOTKEY_NAMED_KEYS[key]) return HOTKEY_NAMED_KEYS[key];
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key;
+  return null;
+}
+
+let hotkeyCaptureKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
+
+function stopHotkeyCapture() {
+  hotkeyCapture.classList.remove("capturing");
+  if (hotkeyCaptureKeydownHandler) {
+    window.removeEventListener("keydown", hotkeyCaptureKeydownHandler, true);
+    hotkeyCaptureKeydownHandler = null;
+  }
+}
+
+function startHotkeyCapture() {
+  if (hotkeyCaptureKeydownHandler) return; // already capturing
+  hotkeyCapture.classList.add("capturing");
+  hotkeyMessage.textContent = "Press a key combination… (Esc cancels)";
+
+  const onKeyDown = async (e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === "Escape") {
+      stopHotkeyCapture();
+      hotkeyMessage.textContent = "";
+      hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
+      return;
+    }
+
+    const mods = hotkeyPressedModifiers(e);
+
+    if (HOTKEY_MODIFIER_KEYS.has(e.key)) {
+      // Live preview while only modifiers are held - not yet a valid combo.
+      hotkeyText.textContent = mods.length ? `${formatHotkey(mods.join("+"))}+…` : "…";
+      return;
+    }
+
+    if (mods.length === 0) {
+      hotkeyMessage.textContent =
+        "Add a modifier (Ctrl, Shift, or Alt) — a bare key would intercept ordinary typing.";
+      return;
+    }
+
+    const keyToken = hotkeyKeyToken(e);
+    if (!keyToken) {
+      hotkeyMessage.textContent = "That key can't be used in a hotkey. Try another.";
+      return;
+    }
+
+    const accelerator = [...mods, keyToken].join("+");
+    // Live preview of the committed-looking combo before the backend confirms it.
+    hotkeyText.textContent = formatHotkey(accelerator);
+    stopHotkeyCapture();
+    hotkeyMessage.textContent = "Saving…";
+
+    try {
+      await invoke("set_hotkey", { hotkey: accelerator });
+      currentSettings.hotkey = accelerator;
+      hotkeyText.textContent = formatHotkey(accelerator);
+      footerHotkey.textContent = formatHotkey(accelerator);
+      hotkeyMessage.textContent = "";
+    } catch (err) {
+      // The backend already rolled back to the previous accelerator, so
+      // reflect that - never leave the display showing a hotkey that isn't
+      // actually the one registered.
+      console.error("[Typr] set_hotkey failed:", err);
+      hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
+      hotkeyMessage.textContent = String(err);
+    }
+  };
+
+  hotkeyCaptureKeydownHandler = onKeyDown;
+  window.addEventListener("keydown", onKeyDown, true);
+}
+
+hotkeyCapture.addEventListener("click", startHotkeyCapture);
 
 // Render one recording state into the header indicator and the sidebar footer
 // health row. Shared by the initial read and the live event so the two can

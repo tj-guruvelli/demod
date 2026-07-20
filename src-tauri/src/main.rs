@@ -153,6 +153,14 @@ fn list_microphones() -> Vec<audio::MicDevice> {
     audio::list_microphones()
 }
 
+/// Settings-panel diagnostic: play a ping on demand regardless of the
+/// interaction-sounds setting, so "the sounds dont play" is debuggable
+/// without starting a real dictation. See sounds::preview's doc comment.
+#[tauri::command]
+fn preview_sound(which: String) -> Result<(), String> {
+    sounds::preview(&which)
+}
+
 #[tauri::command]
 fn get_recording_state(state: State<AppState>) -> RecordingState {
     state.recorder.get_state()
@@ -320,6 +328,293 @@ fn set_menu_open(open: bool) {
     pill_hittest::set_menu_open(open);
 }
 
+/// Recognized accelerator modifier tokens (Tauri's `Shortcut` parser accepts
+/// these case-sensitively as written). Used only to validate a user-supplied
+/// hotkey string before it reaches the parser — never to build one.
+const MODIFIER_TOKENS: &[&str] = &[
+    "CmdOrCtrl",
+    "CommandOrControl",
+    "Cmd",
+    "Command",
+    "Ctrl",
+    "Control",
+    "Alt",
+    "AltGr",
+    "Option",
+    "Shift",
+    "Super",
+    "Meta",
+];
+
+/// Refuse hotkey combinations that would break the app rather than let a bad
+/// combo reach `on_shortcut` and fail (or worse, register something that
+/// swallows ordinary typing):
+/// - a bare key with no modifier (e.g. "A") would globally intercept every
+///   press of that key across every application.
+/// - a lone modifier (e.g. "Shift" alone, or a string ending in a modifier
+///   token) can't be dispatched as a single accelerator.
+fn validate_hotkey(hotkey: &str) -> Result<(), String> {
+    let parts: Vec<&str> = hotkey.split('+').map(|p| p.trim()).collect();
+    if parts.iter().any(|p| p.is_empty()) {
+        return Err("Invalid hotkey format.".to_string());
+    }
+    if parts.len() < 2 {
+        return Err(
+            "A hotkey needs at least one modifier (Ctrl, Shift, Alt, or Win) plus a key — a bare key would intercept ordinary typing.".to_string(),
+        );
+    }
+    let (modifiers, key) = parts.split_at(parts.len() - 1);
+    let key = key[0];
+    if MODIFIER_TOKENS.contains(&key) {
+        return Err(
+            "A hotkey can't end on a modifier alone — add a regular key after the modifiers.".to_string(),
+        );
+    }
+    for m in modifiers {
+        if !MODIFIER_TOKENS.contains(m) {
+            return Err(format!("'{}' isn't a recognized modifier.", m));
+        }
+    }
+    Ok(())
+}
+
+/// Builds the global-shortcut dispatch handler for the hotkey, so it can be
+/// registered again with a different accelerator when the user rebinds it
+/// (see `set_hotkey`) without duplicating the tap/hold/auto gesture state
+/// machine. Behaviour is unchanged from the original inline closure — this
+/// is purely an extraction to make the closure reusable.
+fn make_hotkey_handler(
+    handle: tauri::AppHandle,
+) -> impl Fn(&tauri::AppHandle, &tauri_plugin_global_shortcut::Shortcut, tauri_plugin_global_shortcut::ShortcutEvent)
+       + Send
+       + Sync
+       + 'static {
+    move |_app, shortcut, event| {
+        println!("[Typr] Hotkey event: {:?} state={:?}", shortcut, event.state);
+        let handle = handle.clone();
+        let state = handle.state::<AppState>();
+        let (mode, interaction_sounds) = {
+            let s = state.settings.lock().unwrap();
+            (s.recording_mode.clone(), s.interaction_sounds)
+        };
+        println!("[Typr] Recording mode: {}", mode);
+
+        match event.state {
+            ShortcutState::Pressed => {
+                // US-004: on Pressed, react instantly — set overlay
+                // state + fire the start ping synchronously, BEFORE
+                // spawning the async task that does the actual
+                // (heavier) capture start. SND_ASYNC returns
+                // immediately so this adds no latency of its own.
+                let current = handle.state::<AppState>().recorder.get_state();
+
+                // US-005 "auto" mode, gesture 3: a Pressed while
+                // already hands-free recording is the second tap —
+                // stop and transcribe right away, no keyup needed.
+                // Read-and-clear the gesture under one lock so this
+                // decision is atomic with Released's own read.
+                let second_tap_stop = mode == "auto" && current == RecordingState::Recording && {
+                    let mut gesture = state.hotkey_gesture.lock().unwrap();
+                    if matches!(*gesture, HotkeyGesture::HandsFree) {
+                        *gesture = HotkeyGesture::Idle;
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                if second_tap_stop {
+                    tauri::async_runtime::spawn(async move {
+                        let state = handle.state::<AppState>();
+                        if state.recorder.get_state() == RecordingState::Recording {
+                            sounds::play_stop(interaction_sounds);
+                            let settings = state.settings.lock().unwrap().clone();
+                            match state.recorder.stop_and_transcribe(
+                                &handle,
+                                &settings,
+                                &state.app_dir,
+                            ).await {
+                                Ok(result) => log_transcript(&result),
+                                Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                            }
+                        }
+                    });
+                } else {
+                    let will_start = matches!(mode.as_str(), "toggle" | "push-to-talk" | "auto")
+                        && current == RecordingState::Ready;
+                    if will_start {
+                        if let Some(overlay) = handle.get_webview_window("overlay") {
+                            let _ = overlay.eval(
+                                "document.getElementById('mic').dataset.state = 'listening';",
+                            );
+                        }
+                        sounds::play_start(interaction_sounds);
+                        if mode == "auto" {
+                            // US-005 gestures 1/2: keydown always starts
+                            // capture; record when, so the matching
+                            // Released can classify tap (<300ms) vs hold.
+                            *state.hotkey_gesture.lock().unwrap() =
+                                HotkeyGesture::Pressed(Instant::now());
+                        }
+                    }
+
+                    tauri::async_runtime::spawn(async move {
+                        let state = handle.state::<AppState>();
+                        match mode.as_str() {
+                            "toggle" => {
+                                println!("[Typr] Toggle mode: calling do_toggle_recording");
+                                if state.recorder.get_state() == RecordingState::Recording {
+                                    sounds::play_stop(interaction_sounds);
+                                }
+                                match do_toggle_recording(&handle, state.inner()).await {
+                                    Ok(result) => println!("[Typr] Toggle result: {}", result),
+                                    Err(e) => eprintln!("[Typr] Toggle error: {}", e),
+                                }
+                            }
+                            "push-to-talk" | "auto" => {
+                                let current = state.recorder.get_state();
+                                println!("[Typr] {} mode, current state: {:?}", mode, current);
+                                if current == RecordingState::Ready {
+                                    let mic = state
+                                        .settings
+                                        .lock()
+                                        .unwrap()
+                                        .microphone
+                                        .clone();
+                                    match state.recorder.start_recording(&handle, &mic) {
+                                        Ok(_) => println!("[Typr] Recording started"),
+                                        Err(e) => eprintln!("[Typr] Start recording error: {}", e),
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            }
+            ShortcutState::Released => {
+                if mode == "push-to-talk" {
+                    tauri::async_runtime::spawn(async move {
+                        let state = handle.state::<AppState>();
+                        let current = state.recorder.get_state();
+                        if current == RecordingState::Recording {
+                            // Finalize/stop point — ping before the
+                            // (heavier) transcription is kicked off.
+                            sounds::play_stop(interaction_sounds);
+                            let settings =
+                                state.settings.lock().unwrap().clone();
+                            match state.recorder.stop_and_transcribe(
+                                &handle,
+                                &settings,
+                                &state.app_dir,
+                            ).await {
+                                Ok(result) => log_transcript(&result),
+                                Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                            }
+                        }
+                    });
+                } else if mode == "auto" {
+                    // US-005 gestures 1/2: classify this Released
+                    // against the Pressed that started it, under
+                    // the same lock second-tap-stop reads — a
+                    // fast second Pressed can never observe this
+                    // mid-classification. Idle here means it
+                    // follows a second-tap stop already finalized
+                    // on the Pressed edge above — nothing to do.
+                    let is_hold = {
+                        let mut gesture = state.hotkey_gesture.lock().unwrap();
+                        match *gesture {
+                            HotkeyGesture::Pressed(pressed_at) => {
+                                let tap = pressed_at.elapsed() < Duration::from_millis(300);
+                                *gesture = if tap { HotkeyGesture::HandsFree } else { HotkeyGesture::Idle };
+                                Some(!tap)
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(true) = is_hold {
+                        // Hold: push-to-talk semantics — stop and
+                        // transcribe now.
+                        tauri::async_runtime::spawn(async move {
+                            let state = handle.state::<AppState>();
+                            if state.recorder.get_state() == RecordingState::Recording {
+                                sounds::play_stop(interaction_sounds);
+                                let settings =
+                                    state.settings.lock().unwrap().clone();
+                                match state.recorder.stop_and_transcribe(
+                                    &handle,
+                                    &settings,
+                                    &state.app_dir,
+                                ).await {
+                                    Ok(result) => log_transcript(&result),
+                                    Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Rebind the global hotkey at runtime (unregister the old accelerator,
+/// register the new one with the same gesture handler, persist it).
+///
+/// Runs on a Tauri command thread, never inside a shortcut dispatch closure
+/// — the global-shortcut plugin holds its shortcuts-map mutex for the
+/// duration of a shortcut's dispatch, so calling register/unregister
+/// synchronously from inside that closure would self-deadlock (see the doc
+/// comment above `cancel_recording` in recorder.rs). Calling them here, from
+/// a command invocation, is safe.
+///
+/// On failure to register the new accelerator (most commonly: already
+/// claimed by another app), the previous accelerator is re-registered before
+/// returning the error, so the user is never left with no working hotkey.
+#[tauri::command]
+fn set_hotkey(app: tauri::AppHandle, state: State<AppState>, hotkey: String) -> Result<(), String> {
+    validate_hotkey(&hotkey)?;
+
+    let old_hotkey = state.settings.lock().unwrap().hotkey.clone();
+    if hotkey == old_hotkey {
+        return Ok(());
+    }
+
+    if let Err(e) = app.global_shortcut().unregister(old_hotkey.as_str()) {
+        eprintln!("[Typr] Failed to unregister old hotkey '{}': {}", old_hotkey, e);
+    }
+
+    match app
+        .global_shortcut()
+        .on_shortcut(hotkey.as_str(), make_hotkey_handler(app.clone()))
+    {
+        Ok(_) => {
+            let mut settings = state.settings.lock().unwrap();
+            settings.hotkey = hotkey.clone();
+            settings.save(&state.app_dir)?;
+            println!("[Typr] Hotkey rebound to {}", hotkey);
+            Ok(())
+        }
+        Err(e) => {
+            // Never leave the user stranded with no working hotkey: restore
+            // the previous binding before reporting the failure.
+            if let Err(e2) = app
+                .global_shortcut()
+                .on_shortcut(old_hotkey.as_str(), make_hotkey_handler(app.clone()))
+            {
+                eprintln!(
+                    "[Typr] CRITICAL: failed to restore previous hotkey '{}' after failed rebind: {}",
+                    old_hotkey, e2
+                );
+            }
+            Err(format!(
+                "Couldn't set the hotkey to '{}' ({}). Your previous hotkey is still active.",
+                hotkey, e
+            ))
+        }
+    }
+}
+
 fn main() {
     let app_dir = get_app_dir();
     let settings = Settings::load(&app_dir);
@@ -341,6 +636,7 @@ fn main() {
             get_settings,
             save_settings,
             list_microphones,
+            preview_sound,
             get_recording_state,
             check_model_downloaded,
             download_model,
@@ -350,6 +646,7 @@ fn main() {
             menu_open_settings,
             menu_quit,
             set_menu_open,
+            set_hotkey,
         ])
         .setup(move |app| {
             // Create the overlay window: a Wispr-style status pill, bottom-center,
@@ -424,176 +721,10 @@ fn main() {
 
             println!("[Typr] Registering global shortcut: {}", initial_hotkey);
 
-            match app.global_shortcut().on_shortcut(
-                initial_hotkey.as_str(),
-                move |_app, shortcut, event| {
-                    println!("[Typr] Hotkey event: {:?} state={:?}", shortcut, event.state);
-                    let handle = handle.clone();
-                    let state = handle.state::<AppState>();
-                    let (mode, interaction_sounds) = {
-                        let s = state.settings.lock().unwrap();
-                        (s.recording_mode.clone(), s.interaction_sounds)
-                    };
-                    println!("[Typr] Recording mode: {}", mode);
-
-                    match event.state {
-                        ShortcutState::Pressed => {
-                            // US-004: on Pressed, react instantly — set overlay
-                            // state + fire the start ping synchronously, BEFORE
-                            // spawning the async task that does the actual
-                            // (heavier) capture start. SND_ASYNC returns
-                            // immediately so this adds no latency of its own.
-                            let current = handle.state::<AppState>().recorder.get_state();
-
-                            // US-005 "auto" mode, gesture 3: a Pressed while
-                            // already hands-free recording is the second tap —
-                            // stop and transcribe right away, no keyup needed.
-                            // Read-and-clear the gesture under one lock so this
-                            // decision is atomic with Released's own read.
-                            let second_tap_stop = mode == "auto" && current == RecordingState::Recording && {
-                                let mut gesture = state.hotkey_gesture.lock().unwrap();
-                                if matches!(*gesture, HotkeyGesture::HandsFree) {
-                                    *gesture = HotkeyGesture::Idle;
-                                    true
-                                } else {
-                                    false
-                                }
-                            };
-
-                            if second_tap_stop {
-                                tauri::async_runtime::spawn(async move {
-                                    let state = handle.state::<AppState>();
-                                    if state.recorder.get_state() == RecordingState::Recording {
-                                        sounds::play_stop(interaction_sounds);
-                                        let settings = state.settings.lock().unwrap().clone();
-                                        match state.recorder.stop_and_transcribe(
-                                            &handle,
-                                            &settings,
-                                            &state.app_dir,
-                                        ).await {
-                                            Ok(result) => log_transcript(&result),
-                                            Err(e) => eprintln!("[Typr] Transcription error: {}", e),
-                                        }
-                                    }
-                                });
-                            } else {
-                                let will_start = matches!(mode.as_str(), "toggle" | "push-to-talk" | "auto")
-                                    && current == RecordingState::Ready;
-                                if will_start {
-                                    if let Some(overlay) = handle.get_webview_window("overlay") {
-                                        let _ = overlay.eval(
-                                            "document.getElementById('mic').dataset.state = 'listening';",
-                                        );
-                                    }
-                                    sounds::play_start(interaction_sounds);
-                                    if mode == "auto" {
-                                        // US-005 gestures 1/2: keydown always starts
-                                        // capture; record when, so the matching
-                                        // Released can classify tap (<300ms) vs hold.
-                                        *state.hotkey_gesture.lock().unwrap() =
-                                            HotkeyGesture::Pressed(Instant::now());
-                                    }
-                                }
-
-                                tauri::async_runtime::spawn(async move {
-                                    let state = handle.state::<AppState>();
-                                    match mode.as_str() {
-                                        "toggle" => {
-                                            println!("[Typr] Toggle mode: calling do_toggle_recording");
-                                            if state.recorder.get_state() == RecordingState::Recording {
-                                                sounds::play_stop(interaction_sounds);
-                                            }
-                                            match do_toggle_recording(&handle, state.inner()).await {
-                                                Ok(result) => println!("[Typr] Toggle result: {}", result),
-                                                Err(e) => eprintln!("[Typr] Toggle error: {}", e),
-                                            }
-                                        }
-                                        "push-to-talk" | "auto" => {
-                                            let current = state.recorder.get_state();
-                                            println!("[Typr] {} mode, current state: {:?}", mode, current);
-                                            if current == RecordingState::Ready {
-                                                let mic = state
-                                                    .settings
-                                                    .lock()
-                                                    .unwrap()
-                                                    .microphone
-                                                    .clone();
-                                                match state.recorder.start_recording(&handle, &mic) {
-                                                    Ok(_) => println!("[Typr] Recording started"),
-                                                    Err(e) => eprintln!("[Typr] Start recording error: {}", e),
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                });
-                            }
-                        }
-                        ShortcutState::Released => {
-                            if mode == "push-to-talk" {
-                                tauri::async_runtime::spawn(async move {
-                                    let state = handle.state::<AppState>();
-                                    let current = state.recorder.get_state();
-                                    if current == RecordingState::Recording {
-                                        // Finalize/stop point — ping before the
-                                        // (heavier) transcription is kicked off.
-                                        sounds::play_stop(interaction_sounds);
-                                        let settings =
-                                            state.settings.lock().unwrap().clone();
-                                        match state.recorder.stop_and_transcribe(
-                                            &handle,
-                                            &settings,
-                                            &state.app_dir,
-                                        ).await {
-                                            Ok(result) => log_transcript(&result),
-                                            Err(e) => eprintln!("[Typr] Transcription error: {}", e),
-                                        }
-                                    }
-                                });
-                            } else if mode == "auto" {
-                                // US-005 gestures 1/2: classify this Released
-                                // against the Pressed that started it, under
-                                // the same lock second-tap-stop reads — a
-                                // fast second Pressed can never observe this
-                                // mid-classification. Idle here means it
-                                // follows a second-tap stop already finalized
-                                // on the Pressed edge above — nothing to do.
-                                let is_hold = {
-                                    let mut gesture = state.hotkey_gesture.lock().unwrap();
-                                    match *gesture {
-                                        HotkeyGesture::Pressed(pressed_at) => {
-                                            let tap = pressed_at.elapsed() < Duration::from_millis(300);
-                                            *gesture = if tap { HotkeyGesture::HandsFree } else { HotkeyGesture::Idle };
-                                            Some(!tap)
-                                        }
-                                        _ => None,
-                                    }
-                                };
-                                if let Some(true) = is_hold {
-                                    // Hold: push-to-talk semantics — stop and
-                                    // transcribe now.
-                                    tauri::async_runtime::spawn(async move {
-                                        let state = handle.state::<AppState>();
-                                        if state.recorder.get_state() == RecordingState::Recording {
-                                            sounds::play_stop(interaction_sounds);
-                                            let settings =
-                                                state.settings.lock().unwrap().clone();
-                                            match state.recorder.stop_and_transcribe(
-                                                &handle,
-                                                &settings,
-                                                &state.app_dir,
-                                            ).await {
-                                                Ok(result) => log_transcript(&result),
-                                                Err(e) => eprintln!("[Typr] Transcription error: {}", e),
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                    }
-                },
-            ) {
+            match app
+                .global_shortcut()
+                .on_shortcut(initial_hotkey.as_str(), make_hotkey_handler(handle))
+            {
                 Ok(_) => println!("[Typr] Global shortcut registered successfully"),
                 Err(e) => eprintln!("[Typr] ERROR: Failed to register global shortcut: {}", e),
             }

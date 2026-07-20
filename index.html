@@ -135,10 +135,13 @@
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Hotkey</span>
-                <span class="label-hint">Global keyboard shortcut to trigger recording</span>
+                <span class="label-hint">Click, then press a new key combination. Esc cancels and keeps the current one.</span>
               </div>
               <div class="setting-control">
-                <kbd id="hotkey-text" data-hotkey>&hellip;</kbd>
+                <span class="setting-value-text" id="hotkey-message" role="status" aria-live="polite"></span>
+                <button type="button" id="hotkey-capture" class="hotkey-capture" aria-label="Change the recording hotkey">
+                  <kbd id="hotkey-text" data-hotkey>&hellip;</kbd>
+                </button>
               </div>
             </div>
           </div>
@@ -160,6 +163,16 @@
                 >
                   <span class="switch-knob"></span>
                 </button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Preview sounds</span>
+                <span class="label-hint">Hear the start/stop pings now, even if interaction sounds are off above &mdash; useful for checking whether Typr can play audio at all.</span>
+              </div>
+              <div class="setting-control">
+                <button type="button" id="preview-start" class="btn-secondary" data-preview="start">Play start</button>
+                <button type="button" id="preview-stop" class="btn-secondary" data-preview="stop">Play stop</button>
               </div>
             </div>
           </div>
@@ -227,6 +240,18 @@
             <div id="model-list"></div>
             <div id="download-progress" class="hidden">
               <div id="progress-bar"><div id="progress-fill"></div></div>
+            </div>
+          </div>
+          <div class="card" id="local-language-settings">
+            <div class="card-header">Language</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Spoken language</span>
+                <span class="label-hint">What language you'll be dictating in. Auto-detect works but is slower and less accurate.</span>
+              </div>
+              <div class="setting-control">
+                <select id="language-select"></select>
+              </div>
             </div>
           </div>
           <div class="card hidden" id="cloud-settings">

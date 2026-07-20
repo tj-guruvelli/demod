@@ -385,7 +385,14 @@ impl Recorder {
                     )
                     .await
                 }
-                "cloud" => transcribe_groq::transcribe_groq(&groq_api_key, &temp_path_for_engine).await,
+                "cloud" => {
+                    transcribe_groq::transcribe_groq(
+                        &groq_api_key,
+                        &temp_path_for_engine,
+                        &language,
+                    )
+                    .await
+                }
                 other => Err(format!("Unknown engine: {}", other)),
             }
         };
