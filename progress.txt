@@ -36,6 +36,24 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   Conversely app.emit broadcasts to every webview. Match the pair or events vanish.
 - overlay.html JS lives in a plain inline <script> (no type=module, no imports, uses the
   window.__TAURI__ global from withGlobalTauri) - vite passes it through untouched in build.
+- OVERLAY WEBVIEW CONTRACT (pre-mounted 2026-07-20, Rust side still TODO): status dot is driven
+  by emit_to("overlay", "status-dot", payload) with payload 'starting'|'processing'|'done'|'off'
+  (listener is overlay-scoped, sets #mic dataset.dot). confirm-discard and paste-fallback state
+  layers exist in overlay.html (data-state values 'confirm-discard' / 'paste-fallback'). Quick
+  menu opens on left-click of the pill, sets data-menu="open" on #mic while open (pill_hittest
+  should widen the hit rect to host bounds while that attribute is set), and invokes these EXACT
+  Rust command names: menu_hide_hour, menu_paste_last, menu_open_settings, menu_quit.
+- Hotkey Pressed handler pattern (US-004): compute will_start + read settings ONCE in a single
+  lock scope, set overlay state + play the start ping SYNCHRONOUSLY in the closure, and only
+  then spawn the async task that touches audio/model I/O. US-005/US-006 timer/cancel logic
+  belongs in that synchronous prefix, not inside the spawned async block. Note: main.rs
+  duplicates the overlay-state eval string from recorder.rs's private helper - keep in sync.
+- Settings wire format is camelCase via explicit #[serde(rename)] per field (interactionSounds,
+  overlayVisible, whisperModel...); Rust field names stay snake_case. Follow that convention for
+  any new field, and add a compat test (old config without the field must still deserialize).
+- Interaction sounds: src-tauri/src/sounds.rs embeds start.wav/stop.wav ('static via
+  include_bytes!) and plays through winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT -
+  non-blocking, no audio crate. Call sounds::play_start(enabled)/play_stop(enabled).
 ---
 
 ## 2026-07-19 - US-001
@@ -116,3 +134,37 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   transcript auto-pasted into the newly focused app. US-007 now requires a focus guard:
   capture GetForegroundWindow when recording stops; skip Ctrl+V if focus changed by paste
   time (clipboard + paste-fallback state instead). Do not regress this.
+---
+
+## 2026-07-20 - US-004 (interaction sounds + instant keydown feedback)
+- sounds.rs (new bin-crate module): start/stop pings generated offline (44.1kHz 16-bit mono
+  faded sine glides, ~8-10KB each), embedded via include_bytes!, played with winmm PlaySoundW
+  (SND_ASYNC|SND_MEMORY|SND_NODEFAULT). Cargo.toml gains the Win32_Media_Audio feature on the
+  existing windows 0.61 dep.
+- main.rs Pressed handler reordered: reads interaction_sounds/mode synchronously, sets overlay
+  state to listening + fires play_start() BEFORE spawning the async capture task. play_stop()
+  at both finalize points (toggle stop, push-to-talk Released). save_settings now applies
+  overlay show/hide immediately; startup honors overlay_visible=false after pill_hittest install.
+- settings.rs: +interaction_sounds/+overlay_visible (default true, camelCase wire, compat +
+  round-trip tests). Gates: cargo check clean, cargo test --lib 24/24.
+- Caveat: recorder.rs (out of scope) still emits its own overlay updates slightly later - now
+  harmless idempotent duplicates of the synchronous main.rs set. If a story touches recorder.rs,
+  consider removing the duplication.
+
+## 2026-07-20 - US-010 (settings truthfulness: real hotkey + new toggles)
+- index.html: hotkey <span> is no longer hardcoded; main.ts renders the live combo from
+  get_settings via formatHotkey() (CmdOrCtrl/Cmd->Ctrl on Windows, Super->Win). Added
+  "Interaction sounds" and "Show overlay" toggles to the Recording section reusing the existing
+  toggle-group markup/classes, instant-apply through the existing cached-object saveSettings
+  path (frontend-owned fields round-trip fine). npm run build exit 0.
+
+## 2026-07-20 - Overlay pre-mount (webview halves of US-006/007/008/009)
+- overlay.html: added confirm-discard + paste-fallback state layers, the 8px status dot on
+  listening/processing/done layers ([data-dot] color rules + overlay-scoped 'status-dot'
+  listener), pill hover emphasis, and the #quick-menu (4 items, 120ms grow from bottom-center,
+  outside-click/Esc/item close, data-menu="open" on #mic while open, items invoke
+  menu_hide_hour/menu_paste_last/menu_open_settings/menu_quit). All CSS transform/opacity only;
+  no polling. Rust halves remain: US-006 Esc cancel, US-007 focus guard + paste, US-008 timer +
+  emits, US-009 commands + hit-rect widening. See OVERLAY WEBVIEW CONTRACT in patterns above.
+- Swarm note: 3 parallel workers (disjoint file sets), all three gates re-run at the barrier by
+  the orchestrator: npm run build ok, cargo check ok, cargo test --lib 24/24 ok.

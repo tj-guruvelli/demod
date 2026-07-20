@@ -55,8 +55,8 @@
         "cargo check passes and npm run build passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "sounds.rs (new): start/stop pings embedded via include_bytes! ('static), played with winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT — zero hotkey latency. Pressed handler does state-set + play_start synchronously BEFORE spawning the capture async task; play_stop at both finalize points. Settings +interactionSounds/+overlayVisible (camelCase wire via serde rename, default true, compat tests). save_settings applies overlay show/hide immediately; startup honors overlay_visible."
     },
     {
       "id": "US-005",
@@ -111,7 +111,7 @@
       ],
       "priority": 8,
       "passes": false,
-      "notes": ""
+      "notes": "WEBVIEW SIDE ALREADY PRE-MOUNTED in overlay.html: 8px .status-dot on listening/processing/done layers, colors via [data-dot] rules (starting=yellow, processing=blue, done=green, off=hidden), driven by a window-scoped 'status-dot' event listener (payload 'starting'|'processing'|'done'|'off') that sets mic.dataset.dot. Rust work only: the 300ms late-processing timer, 400ms done relax, and emit_to(\"overlay\", \"status-dot\", ...) at the right lifecycle points."
     },
     {
       "id": "US-009",
@@ -127,7 +127,7 @@
       ],
       "priority": 9,
       "passes": false,
-      "notes": ""
+      "notes": "WEBVIEW SIDE ALREADY PRE-MOUNTED in overlay.html: hover emphasis (opacity 1, bg alpha .95, scale 1.04), #quick-menu with the 4 items growing bottom-center 120ms, closes on outside click/Esc/item, sets data-menu=\"open\" on #mic while open (use it to widen the hit rect in pill_hittest.rs). Menu items invoke EXACT Rust commands to implement: menu_hide_hour, menu_paste_last, menu_open_settings, menu_quit. Rust work only: those 4 commands + left-click-vs-drag discrimination + hit-rect widening while data-menu=open."
     },
     {
       "id": "US-010",
@@ -139,8 +139,8 @@
         "npm run build passes and cargo check passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "main.ts renders the real hotkey from get_settings via formatHotkey() (CmdOrCtrl/Cmd->Ctrl, Super->Win); Interaction sounds + Show overlay toggles added to Recording section reusing existing toggle-group markup, instant-apply through the existing cached-object saveSettings path. Wire casing camelCase (interactionSounds/overlayVisible) matching whisperModel/recordingMode."
     },
     {
       "id": "US-011",
