@@ -102,6 +102,30 @@ fn set_status_dot(app: &AppHandle, dot: &str) {
     let _ = app.emit_to("overlay", "status-dot", dot);
 }
 
+/// Map an engine error to a fixed, actionable message.
+///
+/// The raw error is deliberately NOT shown: it can embody engine output or a
+/// Groq response body, and only fixed strings may reach the webview (see
+/// `fail_to_ready`). But a bare "Transcription failed" throws away the one
+/// thing the user could act on, and the engines already know exactly what is
+/// wrong. The commonest case is the very first dictation on a fresh install:
+/// the default engine is local and no model ships with the app, so that first
+/// attempt fails and without this says nothing about how to fix it.
+fn transcribe_failure_message(err: &str) -> &'static str {
+    let e = err.to_ascii_lowercase();
+    if e.contains("model not found") || e.contains("download a model") {
+        "No speech model yet. Open Typr settings to download one."
+    } else if e.contains("api key") {
+        "Groq needs an API key. Add one in Typr settings."
+    } else if e.contains("groq api error") {
+        "The cloud transcription service rejected that request."
+    } else if e.contains("timed out") || e.contains("connect") || e.contains("dns") {
+        "Could not reach the transcription service."
+    } else {
+        "Transcription failed."
+    }
+}
+
 /// Discard the in-progress recording and go back to idle (US-006). Called
 /// only from a spawned task, never synchronously from inside the Escape
 /// shortcut's dispatch closure - the global-shortcut plugin holds its
@@ -363,7 +387,7 @@ impl Recorder {
             Ok(result) => match result {
                 Ok(text) => text,
                 Err(e) => {
-                    self.fail_to_ready(app, "Transcription failed");
+                    self.fail_to_ready(app, transcribe_failure_message(&e));
                     return Err(e);
                 }
             },
@@ -373,7 +397,7 @@ impl Recorder {
                 match transcribe_fut.await {
                     Ok(text) => text,
                     Err(e) => {
-                        self.fail_to_ready(app, "Transcription failed");
+                        self.fail_to_ready(app, transcribe_failure_message(&e));
                         return Err(e);
                     }
                 }
