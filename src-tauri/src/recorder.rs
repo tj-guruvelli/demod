@@ -19,6 +19,13 @@ const CANCEL_GUARD_SECS: u64 = 30;
 const CONFIRM_DISCARD_SECS: u64 = 3;
 const CANCEL_SHORTCUT: &str = "Escape";
 
+/// US-008: dictations that finish under this budget never show the
+/// "processing" pill at all - only the status dot flips (starting -> done)
+/// while the pill stays on whatever it was already showing.
+const PROCESSING_REVEAL_MS: u64 = 300;
+/// US-008: how long the "done" tick holds before relaxing back to idle.
+const DONE_HOLD_MS: u64 = 400;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
     Ready,
@@ -51,6 +58,14 @@ fn update_overlay(app: &AppHandle, state: &RecordingState) {
         RecordingState::Transcribing => "processing",
     };
     set_overlay_state(app, name);
+}
+
+/// US-008: the corner status dot is a second, independent signal from the
+/// pill layer - driven via emit_to (overlay-scoped listener, see
+/// overlay.html) rather than eval, matching the existing audio-level event.
+/// payload is one of 'starting' | 'processing' | 'done' | 'off'.
+fn set_status_dot(app: &AppHandle, dot: &str) {
+    let _ = app.emit_to("overlay", "status-dot", dot);
 }
 
 /// Discard the in-progress recording and go back to idle (US-006). Called
@@ -215,7 +230,12 @@ impl Recorder {
         settings: &Settings,
         app_dir: &PathBuf,
     ) -> Result<String, String> {
-        // Stop recording
+        // Stop recording. Internal state flips to Transcribing immediately
+        // (other commands gate on it), but the overlay PILL stays as-is for
+        // now - US-008 only reveals the "processing" layer if transcription
+        // is still running past PROCESSING_REVEAL_MS, so short dictations
+        // never flicker through it. The status dot is a separate, earlier
+        // signal: it goes yellow ("starting") right away.
         {
             let mut state = self.state.lock().unwrap();
             if *state != RecordingState::Recording {
@@ -223,7 +243,7 @@ impl Recorder {
             }
             *state = RecordingState::Transcribing;
             let _ = app.emit("recording-state", RecordingState::Transcribing);
-            update_overlay(app, &RecordingState::Transcribing);
+            set_status_dot(app, "starting");
         }
         // US-007 focus guard: capture the foreground window now, at the
         // moment capture stops, not after the slow transcription step below
@@ -246,16 +266,41 @@ impl Recorder {
             recorder.stop_and_save(&temp_path)?;
         }
 
-        // Transcribe
-        let raw_text = match settings.engine.as_str() {
-            "local" => {
-                let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
-                transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
+        // Transcribe. Race the actual engine call against the 300ms
+        // "instant feel" budget (US-008, research secs 1 & 7.5): if it
+        // finishes within the budget, the processing pill is never shown at
+        // all; only past the budget do we reveal it (and flip the dot to
+        // "processing" blue) before awaiting the rest of the same future.
+        let engine = settings.engine.clone();
+        let whisper_model = settings.whisper_model.clone();
+        let groq_api_key = settings.groq_api_key.clone();
+        let temp_path_for_engine = temp_path.clone();
+        let app_dir_for_engine = app_dir.clone();
+        let app_for_engine = app.clone();
+        let transcribe_fut = async move {
+            match engine.as_str() {
+                "local" => {
+                    let model_path =
+                        app_dir_for_engine.join(transcribe_local::model_filename(&whisper_model));
+                    transcribe_local::transcribe_local(&app_for_engine, &model_path, &temp_path_for_engine).await
+                }
+                "cloud" => transcribe_groq::transcribe_groq(&groq_api_key, &temp_path_for_engine).await,
+                other => Err(format!("Unknown engine: {}", other)),
             }
-            "cloud" => {
-                transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await?
+        };
+        tokio::pin!(transcribe_fut);
+        let raw_text = match tokio::time::timeout(
+            Duration::from_millis(PROCESSING_REVEAL_MS),
+            &mut transcribe_fut,
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_elapsed) => {
+                update_overlay(app, &RecordingState::Transcribing);
+                set_status_dot(app, "processing");
+                transcribe_fut.await?
             }
-            _ => return Err(format!("Unknown engine: {}", settings.engine)),
         };
 
         // Cleanup temp file
@@ -283,8 +328,30 @@ impl Recorder {
                 // on the clipboard and the overlay says so. Hold that message
                 // instead of snapping to idle - idle here would silently discard
                 // the only signal the user gets that they must paste manually.
-                Some(PasteOutcome::Fallback) => set_overlay_state(app, "paste-fallback"),
-                _ => update_overlay(app, &RecordingState::Ready),
+                Some(PasteOutcome::Fallback) => {
+                    set_overlay_state(app, "paste-fallback");
+                    set_status_dot(app, "off");
+                }
+                // US-008: success shows the "done" tick + green dot for
+                // DONE_HOLD_MS, then relaxes to idle - deferred via spawn
+                // (not a blocking sleep here) so this command returns to the
+                // caller immediately; debounced against state so a fresh
+                // recording started during the hold isn't clobbered back to
+                // idle by the stale timer.
+                _ => {
+                    set_overlay_state(app, "done");
+                    set_status_dot(app, "done");
+                    drop(state);
+                    let app = app.clone();
+                    let state = self.state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(DONE_HOLD_MS)).await;
+                        if *state.lock().unwrap() == RecordingState::Ready {
+                            update_overlay(&app, &RecordingState::Ready);
+                            set_status_dot(&app, "off");
+                        }
+                    });
+                }
             }
         }
 

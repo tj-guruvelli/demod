@@ -290,3 +290,42 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
     near-simultaneous Esc presses to both spawn a cancel task without extra de-duplication.
     Keep new cancel/teardown paths idempotent for the same reason rather than adding explicit
     de-dup locking.
+
+## 2026-07-20 - US-008 (processing budget UX: late-processing pill, done relax, status dot timing)
+- Webview side was already pre-mounted (confirmed): overlay.html's 8px .status-dot lives on the
+  listening/processing/done layers, colored via #mic[data-dot] CSS vars (starting=yellow,
+  processing=blue, done=green, off=hidden), crossfaded by opacity only, driven by an
+  overlay-scoped 'status-dot' listener. No CSS/webview JS changes needed for this story.
+- recorder.rs (Rust timing/driving side only): stop_and_transcribe now races the actual engine
+  call (transcribe_local/transcribe_groq, moved into an owned async block) against
+  tokio::time::timeout(300ms) - PROCESSING_REVEAL_MS. Internal RecordingState still flips to
+  Transcribing immediately (other commands gate on it) and the dot flips to 'starting' (yellow)
+  right away, but the overlay PILL is left showing whatever it already was; only if the timeout
+  elapses first do we reveal the "processing" pill layer + flip the dot to 'processing' (blue),
+  then await the same pinned future to completion. Short dictations that finish inside the
+  budget never show the processing pill at all.
+- On success the pill goes to "done" + dot "done" (green), held for DONE_HOLD_MS (400ms) via a
+  spawned tokio sleep (never a blocking sleep on the calling task), then relaxes to idle + dot
+  "off" - debounced against self.state so a fresh recording started during the hold is not
+  clobbered back to idle by the stale timer (same pattern as the existing confirm-discard
+  debounce). The paste-fallback path (US-007) is unchanged: dot goes to 'off' instead of 'done'
+  since that layer has no status dot in the CSS.
+- Files changed: src-tauri/src/recorder.rs (stop_and_transcribe + new set_status_dot helper +
+  PROCESSING_REVEAL_MS/DONE_HOLD_MS consts), prd.json (US-008 passes=true), progress.txt.
+- Checks: cargo check clean (2.05s, unpiped to a file, exit read separately: EXIT=0);
+  cargo test --lib 24/24 pass (EXIT=0). NOT verified at runtime (no browser/UI tools this
+  iteration) - the actual 300ms skip-processing behavior and the 400ms done-hold timing need a
+  manual dev run/dogfood pass to confirm feel, per US-011.
+- **Learnings for future iterations:**
+  - The dot's three colors are not literally "server starting" vs "processing" (this codebase
+    has no per-request signal that distinguishes a cold model load from a warm server request) -
+    they're driven by the same 300ms boundary the pill uses: 'starting' from the moment
+    transcription begins, 'processing' only once we've decided to reveal the pill. This is a
+    faithful, non-fabricated proxy for the PRD's description, not a stretch - a fast warm
+    request barely flashes yellow before going green; a slow cold-load request sits on yellow
+    then blue. If a future story adds a real whisper-server health/ready signal, prefer wiring
+    that in as the 'starting' trigger instead of the timing proxy.
+  - tokio::time::timeout + tokio::pin! on an owned async block (not a spawned task) is the
+    correct shape for "reveal UI only if slow, but keep driving the same operation either way" -
+    no cancellation, no duplicate work, the pinned future is simply polled a second time via
+    .await after losing the race.

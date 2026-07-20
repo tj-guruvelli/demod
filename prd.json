@@ -56,7 +56,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "sounds.rs (new): start/stop pings embedded via include_bytes! ('static), played with winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT — zero hotkey latency. Pressed handler does state-set + play_start synchronously BEFORE spawning the capture async task; play_stop at both finalize points. Settings +interactionSounds/+overlayVisible (camelCase wire via serde rename, default true, compat tests). save_settings applies overlay show/hide immediately; startup honors overlay_visible."
+      "notes": "sounds.rs (new): start/stop pings embedded via include_bytes! ('static), played with winmm PlaySoundW SND_ASYNC|SND_MEMORY|SND_NODEFAULT \u2014 zero hotkey latency. Pressed handler does state-set + play_start synchronously BEFORE spawning the capture async task; play_stop at both finalize points. Settings +interactionSounds/+overlayVisible (camelCase wire via serde rename, default true, compat tests). save_settings applies overlay show/hide immediately; startup honors overlay_visible."
     },
     {
       "id": "US-005",
@@ -110,7 +110,7 @@
         "cargo check passes and npm run build passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "WEBVIEW SIDE ALREADY PRE-MOUNTED in overlay.html: 8px .status-dot on listening/processing/done layers, colors via [data-dot] rules (starting=yellow, processing=blue, done=green, off=hidden), driven by a window-scoped 'status-dot' event listener (payload 'starting'|'processing'|'done'|'off') that sets mic.dataset.dot. Rust work only: the 300ms late-processing timer, 400ms done relax, and emit_to(\"overlay\", \"status-dot\", ...) at the right lifecycle points."
     },
     {
