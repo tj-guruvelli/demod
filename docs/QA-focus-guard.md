@@ -37,6 +37,16 @@ phrase so a misplaced paste is unmissable.
 11. Quick-menu paste-last (US-009): dictate, then menu > Paste last transcript into
     a fresh Notepad. Lands correctly.
 12. Repeat #2 in a real messaging app (the original bug's blast radius). NO paste.
+13. RECOVERY AFTER A FAILED DICTATION (regression test for the stuck-state bug):
+    force a transcription failure - easiest is Settings > Models > Groq Cloud with
+    the API key field emptied - then dictate once. EXPECTED: the pill shows a short
+    failure message rather than spinning forever, AND the very next hotkey press
+    starts a new recording normally. Before the fix, one failure left the recorder
+    stuck in Transcribing and every later press was rejected silently, so the app
+    had to be restarted. Switch the engine back to Local afterwards.
+14. Settings save failure is reported: not easily forced by hand; if you ever see a
+    setting revert after reopening Settings, the notice banner should have said so.
+    Worth watching for during the dogfood day rather than staging.
 
 ## Deploy procedure context
 

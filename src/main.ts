@@ -29,6 +29,7 @@ interface DownloadProgress {
 }
 
 // DOM elements
+const appNotice = document.getElementById("app-notice")!;
 const statusDot = document.getElementById("status-dot")!;
 const statusText = document.getElementById("status-text")!;
 const micSelect = document.getElementById("mic-select") as HTMLSelectElement;
@@ -171,13 +172,26 @@ async function loadSettings() {
   // Populate mic dropdown
   const mics = await invoke<MicDevice[]>("list_microphones");
   micSelect.innerHTML = "";
-  mics.forEach((mic) => {
+  if (mics.length === 0) {
+    // An empty dropdown would leave the user guessing why dictation does
+    // nothing. For a dictation app this is a critical condition, so name it.
     const option = document.createElement("option");
-    option.value = mic.name;
-    option.textContent = mic.name + (mic.is_default ? " (default)" : "");
+    option.textContent = "No microphone detected";
+    option.disabled = true;
+    option.selected = true;
     micSelect.appendChild(option);
-  });
-  micSelect.value = currentSettings.microphone;
+    micSelect.disabled = true;
+    showAppNotice("No microphone detected, so Typr cannot record. Connect one and reopen Settings.");
+  } else {
+    micSelect.disabled = false;
+    mics.forEach((mic) => {
+      const option = document.createElement("option");
+      option.value = mic.name;
+      option.textContent = mic.name + (mic.is_default ? " (default)" : "");
+      micSelect.appendChild(option);
+    });
+    micSelect.value = currentSettings.microphone;
+  }
 
   // Engine
   setEngine(currentSettings.engine);
@@ -296,10 +310,30 @@ async function renderModelCards() {
   footerModel.textContent = `Model: ${currentSettings.whisperModel}${suffix}`;
 }
 
+/// Window-level failure message. Kept to one line of plain language: the
+/// detail belongs in the log, not on screen.
+function showAppNotice(message: string) {
+  appNotice.textContent = message;
+  appNotice.hidden = false;
+}
+
+function clearAppNotice() {
+  appNotice.hidden = true;
+  appNotice.textContent = "";
+}
+
 async function saveSettings() {
   currentSettings.microphone = micSelect.value;
   currentSettings.groqApiKey = groqKey.value;
-  await invoke("save_settings", { settings: currentSettings });
+  try {
+    await invoke("save_settings", { settings: currentSettings });
+    clearAppNotice();
+  } catch (err) {
+    // The control has already moved on screen, so staying silent here would
+    // leave the user believing a setting persisted when it did not.
+    console.error("[Typr] save_settings failed:", err);
+    showAppNotice("Could not save your settings, so that last change was not kept.");
+  }
 }
 
 // Event listeners
@@ -416,4 +450,9 @@ listen<DownloadProgress>("download-progress", (event) => {
 });
 
 // Initialize
-loadSettings();
+// A rejection here used to abort mid-population, leaving a half-filled window
+// (blank mic list, unrendered model cards) with nothing saying why.
+loadSettings().catch((err) => {
+  console.error("[Typr] loadSettings failed:", err);
+  showAppNotice("Could not load your settings. Values shown may be incomplete or stale.");
+});

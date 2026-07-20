@@ -282,6 +282,25 @@ body {
   background: var(--bg);
 }
 
+/* Window-level failure notice (settings could not load or save). Sits above
+   the sections so it is visible from any tab. Uses the amber/red status
+   tokens already defined for the recording states rather than new colours. */
+#app-notice {
+  margin: 20px 36px -8px;
+  max-width: 640px;
+  padding: 10px 14px;
+  border: 1px solid rgba(242, 184, 184, 0.35);
+  border-radius: var(--radius);
+  background: rgba(242, 184, 184, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#app-notice[hidden] {
+  display: none;
+}
+
 .content-section {
   display: none;
   padding: 28px 36px;
