@@ -105,31 +105,42 @@ Scenario 7 (Esc cancel) is also automated - paste-scenarios.mjs, which asserts a
 recording starts, Esc discards it, nothing is pasted anywhere, and the app
 returns to Ready.
 
-WHY THE PASTE-DESTINATION SCENARIOS (1, 4, 8, 10, 11, 12) CANNOT BE AUTOMATED
-============================================================================
-Not for want of trying, and the reason is an OS rule rather than a missing
-trick. Asserting a DESTINATION requires the harness to own the foreground
-window at the moment recording stops, because that is what the guard captures.
-Windows blocks SetForegroundWindow (what AppActivate uses) for any process that
-is not already foreground. It works when run interactively from a focused
-shell, and does not stick when driven from a background Node process.
+PASTE-DESTINATION SCENARIOS: AUTOMATED AFTER ALL
+================================================
+This section previously claimed these were impossible because Windows refuses
+SetForegroundWindow to a background process. That claim was WRONG, and the
+reasoning behind it was wrong in a specific, instructive way.
 
-That was established the only way that cannot be confounded: the paste target
-reports its OWN focus state, so no second process is involved. It reports
-focused=False at stop, every time. paste-scenarios.mjs therefore SKIPS those
-checks explicitly rather than failing them.
+The target window was never being created. Node's spawn() of paste-target.ps1
+produced no window at all - verified directly: no matching MainWindowTitle, an
+empty mirror file. PowerShell's Start-Process creates it correctly. So every
+"nothing landed in the target" reading was vacuous: there was no target. On top
+of that, the focus probe reported nothing because it crashed on $pid, a RESERVED
+PowerShell variable.
 
-Three earlier attempts each produced a confident wrong conclusion from a broken
-probe - a crashed $pid script, an execSync returning '' that was read as
-evidence, and a stderr channel that is dead in a GUI-subsystem binary. If you
-pick this up later, instrument first and distrust any null result.
+With a target that actually exists, everything works: it takes and holds focus
+(it self-reports focused=True), and the transcript lands in it.
 
-What a human still needs to confirm, and it is genuinely quick: dictate one
-sentence into an ordinary editor and watch where it lands (scenario 1). If it
-pastes, the feature works end to end. If the pill says "Copied, press Ctrl+V",
-read com.typr.app/paste.log - it now names which branch fired and why. Then 2,
-4, 8, 10, 11 and 12 are variations of that same check with a different target
-or timing, and 9 needs an elevated window (UAC, so out of reach either way).
+paste-scenarios.mjs, 10/10 against the real binary:
+  scenario 1  a real dictation lands IN the intended window (the core function)
+  scenario 7  Esc discards, and nothing is pasted anywhere (fresh window)
+  scenario 11 the quick menu's "Paste last transcript" reaches the focused window
+
+Two harness traps worth remembering: the destination check must run AFTER the
+stop/transcribe/paste settles, not before it; and clearing the mirror FILE does
+not clear the TextBox, so leftover text reappears within 200ms and reads as a
+leak. Use a fresh window per scenario instead.
+
+AUTOMATED AND PASSING: 1, 3, 5, 6, 7, 11, 13. Scenario 2 shares scenario 3's
+code path (a foreign foreground window fails the hwnd+pid check and falls back).
+
+Left for a human, and genuinely minor now: 4, 8, 10 and 12 are timing or
+target-app variations of checks that already pass, and 9 needs an elevated
+window, which needs UAC. 14 (a failed settings save) cannot be forced by hand.
+
+If a paste ever does go wrong in real use, com.typr.app/paste.log now names
+which branch fired and why - no target captured, refocus succeeded, or refocus
+refused by the OS.
 
 If 2, 5, 6 or 12 fails: restore the .bak immediately per DEPLOY.md and do not
 retry on the daily driver.
