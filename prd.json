@@ -42,8 +42,8 @@
         "npm run build passes and cargo check passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "cpal callback in audio.rs accumulates sum-of-squares and emits 'audio-level' (single RMS float) via emit_to(\"overlay\") at >=33ms spacing; stream lifetime = recording, so no gating flag. overlay.html: window-scoped listener (emit_to does not reach target-Any listeners), 14 fixed center-weighted per-bar weights set at load, one rAF loop gated by a MutationObserver on data-state, scaleY-only writes, 600ms silence eases bars to 0.08."
     },
     {
       "id": "US-004",
@@ -88,9 +88,10 @@
     {
       "id": "US-007",
       "title": "Clipboard-respecting paste with fallback and paste-last shortcut",
-      "description": "As a user, I want dictation to paste without destroying my clipboard, and a rescue path when paste fails. Per research section 3: in paste.rs save the current clipboard text, write the transcript, synthesize Ctrl+V, wait briefly, restore the saved clipboard; write the transient transcript with the ExcludeClipboardContentFromMonitorProcessing and CF_CLIPBOARD_VIEWER_IGNORE formats so clipboard managers skip it. If paste fails, leave the transcript on the clipboard, set overlay state 'paste-fallback' (pre-mounted pill state with a Paste hint) until next state change. Register global shortcut Shift+Alt+Z to re-insert the last transcript (store last transcript in AppState).",
+      "description": "As a user, I want dictation to paste without destroying my clipboard, into the RIGHT app, and a rescue path when paste fails. Per research section 3: in paste.rs save the current clipboard text, write the transcript, synthesize Ctrl+V, wait briefly, restore the saved clipboard; write the transient transcript with the ExcludeClipboardContentFromMonitorProcessing and CF_CLIPBOARD_VIEWER_IGNORE formats so clipboard managers skip it. FOCUS GUARD (from a real user bug on 2026-07-19: transcription took long enough that the user switched apps, and the transcript was pasted into the wrong app): capture the foreground window handle (GetForegroundWindow) at the moment recording stops; at paste time, if the current foreground window differs, do NOT synthesize Ctrl+V - leave the transcript on the clipboard and show the paste-fallback state instead. If paste fails, same fallback: transcript stays on clipboard, overlay state 'paste-fallback' (pre-mounted pill state with a Paste hint) until next state change. Register global shortcut Shift+Alt+Z to re-insert the last transcript (store last transcript in AppState).",
       "acceptanceCriteria": [
         "paste.rs implements save -> write(with exclusion formats) -> Ctrl+V -> restore, and restores only on success per Wispr's documented behavior",
+        "Auto-paste is skipped when the foreground window changed between end-of-recording and paste time; the transcript stays on the clipboard and the paste-fallback state shows",
         "paste-fallback state exists in overlay.html and is triggered on paste failure",
         "Shift+Alt+Z re-pastes the last transcript; last transcript stored in AppState",
         "cargo check passes and npm run build passes"

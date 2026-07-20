@@ -76,8 +76,9 @@
         transform: translate(-50%, -50%) scaleX(1.15) scaleY(1.2);
       }
 
-      /* Listening: waveform pill. 14 pre-created bars; US-003 drives their
-         transform: scaleY from real mic RMS. Flat-at-rest until then. */
+      /* Listening: waveform pill. 14 pre-created bars driven by real mic RMS
+         (the script below writes transform: scaleY each frame; no transition
+         here or it would fight the rAF loop). Flat at rest. */
       .state-listening {
         width: 180px;
         height: 36px;
@@ -162,5 +163,79 @@
         <svg viewBox="0 0 24 24"><polyline points="5 12.5 10 17.5 19 7"/></svg>
       </div>
     </div>
+    <script>
+      // Waveform renderer: real mic RMS pushed from Rust (audio.rs emits
+      // 'audio-level', a single float, at <=30Hz while recording). One rAF
+      // loop runs ONLY while data-state=listening (started/stopped by a
+      // MutationObserver on the attribute - event-driven, no polling); bars
+      // animate via transform: scaleY exclusively, no layout reads.
+      (() => {
+        const FLOOR = 0.08;        // honest-flatline scaleY
+        const SILENCE_RMS = 0.01;  // below this counts as silence
+        const SILENCE_MS = 600;    // flatline after this much continuous silence
+        const GAIN = 9;            // maps typical speech RMS (~0.02-0.3) to 0..1
+        const EASE = 0.35;         // per-frame smoothing toward target
+
+        const mic = document.getElementById('mic');
+        const bars = Array.from(document.querySelectorAll('.state-listening .bar'));
+        const center = (bars.length - 1) / 2;
+        // Per-bar weighting: center-tall envelope plus a small random jitter,
+        // fixed ONCE at load. Never re-randomized per frame: all motion must
+        // come from the real level, not noise.
+        const weights = bars.map((_, i) => {
+          const envelope = 1 - 0.7 * (Math.abs(i - center) / center);
+          return envelope * (0.85 + Math.random() * 0.3);
+        });
+
+        let level = 0;      // latest RMS from Rust
+        let lastLoudAt = 0; // performance.now() of last above-threshold level
+        const heights = bars.map(() => FLOOR);
+        let rafId = 0;
+
+        const frame = (now) => {
+          const silent = now - lastLoudAt > SILENCE_MS;
+          const norm = silent ? 0 : Math.min(1, Math.pow(level * GAIN, 0.7));
+          for (let i = 0; i < bars.length; i++) {
+            const target = Math.max(FLOOR, norm * weights[i]);
+            heights[i] += (target - heights[i]) * EASE;
+            bars[i].style.transform = 'scaleY(' + heights[i].toFixed(3) + ')';
+          }
+          rafId = requestAnimationFrame(frame);
+        };
+
+        const startLoop = () => {
+          if (rafId) return;
+          level = 0;
+          lastLoudAt = performance.now();
+          rafId = requestAnimationFrame(frame);
+        };
+
+        const stopLoop = () => {
+          if (!rafId) return;
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+          for (let i = 0; i < bars.length; i++) {
+            heights[i] = FLOOR;
+            bars[i].style.transform = 'scaleY(' + FLOOR + ')';
+          }
+        };
+
+        new MutationObserver(() => {
+          if (mic.dataset.state === 'listening') startLoop();
+          else stopLoop();
+        }).observe(mic, { attributes: true, attributeFilter: ['data-state'] });
+
+        // Rust emits with emit_to("overlay", ...): label-targeted events do
+        // NOT reach target-Any listeners (plain event.listen), so listen on
+        // this window's own target.
+        const tauri = window.__TAURI__;
+        if (tauri && tauri.webviewWindow) {
+          tauri.webviewWindow.getCurrentWebviewWindow().listen('audio-level', (e) => {
+            level = e.payload;
+            if (level >= SILENCE_RMS) lastLoudAt = performance.now();
+          });
+        }
+      })();
+    </script>
   </body>
 </html>

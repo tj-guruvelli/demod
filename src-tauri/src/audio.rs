@@ -2,6 +2,12 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tauri::Emitter;
+
+/// Minimum spacing between 'audio-level' emissions (~30Hz ceiling). The
+/// overlay waveform is driven by these events; see src/overlay.html.
+const LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(33);
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MicDevice {
@@ -54,7 +60,7 @@ impl AudioRecorder {
         }
     }
 
-    pub fn start(&mut self, mic_name: &str) -> Result<(), String> {
+    pub fn start(&mut self, app: &tauri::AppHandle, mic_name: &str) -> Result<(), String> {
         // Clear any leftover samples from previous recording
         self.samples.lock().unwrap().clear();
 
@@ -90,12 +96,34 @@ impl AudioRecorder {
         };
 
         let samples = self.samples.clone();
+        let level_app = app.clone();
+        let mut level_sum_sq = 0.0f64;
+        let mut level_samples = 0usize;
+        let mut last_level_emit = Instant::now();
         let stream = device
             .build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let mut buf = samples.lock().unwrap();
-                    buf.extend_from_slice(data);
+                    {
+                        let mut buf = samples.lock().unwrap();
+                        buf.extend_from_slice(data);
+                    }
+                    // Honest waveform feed: RMS of everything captured since
+                    // the last emission, throttled to <=30Hz. The stream only
+                    // exists while recording, so levels stop with capture.
+                    // emit_to("overlay") only reaches window-scoped listeners,
+                    // not target-Any ones (overlay.html listens accordingly).
+                    for &s in data {
+                        level_sum_sq += (s as f64) * (s as f64);
+                    }
+                    level_samples += data.len();
+                    if level_samples > 0 && last_level_emit.elapsed() >= LEVEL_EMIT_INTERVAL {
+                        let rms = (level_sum_sq / level_samples as f64).sqrt() as f32;
+                        let _ = level_app.emit_to("overlay", "audio-level", rms);
+                        level_sum_sq = 0.0;
+                        level_samples = 0;
+                        last_level_emit = Instant::now();
+                    }
                 },
                 |err| {
                     eprintln!("[Typr] Audio stream error: {}", err);

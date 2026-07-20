@@ -29,6 +29,13 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
 - Overlay interactivity: window is click-through by default; pill_hittest.rs (WH_MOUSE_LL) flips
   it over the pill rect. If you change #mic geometry in overlay.html, update the PILL_* consts
   in pill_hittest.rs.
+- Tauri v2 event targeting (verified in tauri-2.10.3 source, manager/mod.rs emit_to filter):
+  emit_to("overlay", ...) is ONLY delivered to listeners scoped to that label
+  (getCurrentWebviewWindow().listen or listen(..., { target: 'overlay' })). A plain
+  __TAURI__.event.listen registers target Any and silently receives NOTHING from emit_to.
+  Conversely app.emit broadcasts to every webview. Match the pair or events vanish.
+- overlay.html JS lives in a plain inline <script> (no type=module, no imports, uses the
+  window.__TAURI__ global from withGlobalTauri) - vite passes it through untouched in build.
 ---
 
 ## 2026-07-19 - US-001
@@ -103,3 +110,9 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   - windows crate handle types wrap *mut c_void in 0.61 (HHOOK(ptr)); store as isize in an
     AtomicIsize for statics.
 ---
+
+## User feedback (2026-07-19, from live use)
+- REAL BUG: user dictated, switched apps while "Transcribing..." was showing, and the
+  transcript auto-pasted into the newly focused app. US-007 now requires a focus guard:
+  capture GetForegroundWindow when recording stops; skip Ctrl+V if focus changed by paste
+  time (clipboard + paste-fallback state instead). Do not regress this.
