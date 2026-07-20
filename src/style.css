@@ -18,10 +18,19 @@
   --text-tertiary:        #808080;
   --text-tertiary-strong: #8f8f8f;
   --focus-ring:     rgba(255, 255, 255, 0.9);
-  --green:          #6fe08c;
+  /* Accent system restored from template/main:src/style.css (US-012 revert:
+     TJ rejected the desaturated-only palette that dropped all color from the
+     app). --text-tertiary/-strong are intentionally NOT taken from the
+     template - the template's #3e3e44 fails AA on our backgrounds; keep the
+     WCAG-audited values above. */
+  --accent:         #5e6ad2;
+  --accent-hover:   #6872db;
+  --accent-rgb:     94, 106, 210;
+  --accent-subtle:  rgba(var(--accent-rgb), 0.12);
+  --green:          #3ecf6e;
   --blue:           #4a9ff5;
-  --yellow:         #e0c341;
-  --red:            #f2b8b8;
+  --yellow:         #f5a623;
+  --red:            #e5484d;
   --border:         rgba(255, 255, 255, 0.10);
   --border-strong:  rgba(255, 255, 255, 0.14);
   --radius:         8px;
@@ -34,9 +43,9 @@
   /* Channel triples so a status colour has ONE definition. Tints below are
      written rgba(var(--x-rgb), a) instead of restating the literal, which is
      how --green/--red/--yellow silently grew duplicate copies. */
-  --green-rgb:      111, 224, 140;
-  --yellow-rgb:     224, 195, 65;
-  --red-rgb:        242, 184, 184;
+  --green-rgb:      62, 207, 110;
+  --yellow-rgb:     245, 166, 35;
+  --red-rgb:        229, 72, 77;
   /* White overlays. Same family as --border/--border-strong, named by ROLE so
      a background and a border no longer share an unrelated token by accident. */
   --surface-subtle: rgba(255, 255, 255, 0.05);
@@ -112,8 +121,7 @@ body {
 }
 
 .app-icon {
-  color: var(--text);
-  opacity: 0.9;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -219,6 +227,19 @@ body {
   color: var(--text);
   background: var(--surface-active);
   font-weight: 500;
+  position: relative;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 1px;
 }
 
 .nav-icon {
@@ -299,7 +320,11 @@ body {
    the sections so it is visible from any tab. Uses the amber/red status
    tokens already defined for the recording states rather than new colours. */
 #app-notice {
-  margin: 20px 36px -8px;
+  /* Aligned to .content-section's inner content width (720px max-width -
+     2x40px padding = 640px) and centered the same way (auto inline
+     margins), so its left/right edges land exactly on the cards below
+     instead of drifting with window width. */
+  margin: 20px auto -8px;
   max-width: 640px;
   padding: 10px 14px;
   border: 1px solid rgba(var(--red-rgb), 0.35);
@@ -323,8 +348,15 @@ body {
 
 .content-section {
   display: none;
-  padding: 28px 36px;
-  max-width: 640px;
+  padding: 32px 40px;
+  /* Template has no max-width (fills the pane). We keep one for readability
+     if the window is widened, but center it instead of leaving it glued
+     left. 720px = card content width (640, matching #app-notice below)
+     plus the 2x40px padding - at the default 900x600 window the pane is
+     only ~670px wide, so this is a no-op there (block fills the pane) and
+     only centers a column once the window grows past ~760px. */
+  max-width: 720px;
+  margin-inline: auto;
   opacity: 0;
   transform: translateY(-4px);
 }
@@ -465,8 +497,8 @@ select {
 
 select:focus,
 input[type="password"]:focus {
-  border-color: var(--border-hover);
-  box-shadow: 0 0 0 2px var(--ring-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 input[type="password"]::placeholder {
@@ -507,7 +539,7 @@ input[type="password"]::placeholder {
 }
 
 .toggle-btn.active {
-  background: var(--surface-raised);
+  background: var(--accent);
   color: #fff;
 }
 
@@ -578,8 +610,8 @@ input[type="password"]::placeholder {
 
 .btn-primary {
   padding: 7px 16px;
-  background: #fff;
-  color: #0a0a0a;
+  background: var(--accent);
+  color: #fff;
   border: none;
   border-radius: var(--radius-pill);
   font-family: var(--font);
@@ -587,11 +619,11 @@ input[type="password"]::placeholder {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity var(--ease-out);
+  transition: background-color var(--ease-out);
 }
 
 .btn-primary:hover {
-  opacity: 0.85;
+  background: var(--accent-hover);
 }
 
 .btn-primary:disabled {
@@ -776,18 +808,18 @@ kbd {
 /* ── Selection ──────────────────────────────────────── */
 
 ::selection {
-  background: var(--surface-raised);
+  background: var(--accent-subtle);
   color: var(--text);
 }
 
 /* ── Focus visibility ─────────────────────────────────
    No element in this UI had a focus ring before this pass (grep for
    focus-visible was 0). Never `outline: none` without a replacement - this
-   IS the replacement. --focus-ring is near-white against every background
-   in this palette (bg/sidebar-bg/surface are all near-black), so it clears
-   3:1 against adjacent colors everywhere it's used. Kept as one generic
-   rule plus shape-aware overrides so the ring reads as intentional against
-   pill/rounded controls instead of a plain rectangle. */
+   IS the replacement. Ring color uses --accent (restored template accent
+   system) rather than --focus-ring; --accent clears 3:1 against every
+   background in this palette (bg/sidebar-bg/surface are all near-black).
+   Kept as one generic rule plus shape-aware overrides so the ring reads as
+   intentional against pill/rounded controls instead of a plain rectangle. */
 
 a:focus-visible,
 button:focus-visible,
@@ -795,29 +827,29 @@ select:focus-visible,
 input:focus-visible,
 [tabindex]:focus-visible,
 [role="switch"]:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .nav-item:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .toggle-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
   border-radius: var(--radius-pill);
 }
 
 .switch:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .model-status .gate-badge:focus-visible,
 .btn-primary:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
