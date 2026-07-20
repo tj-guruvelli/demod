@@ -61,6 +61,7 @@
       #mic[data-state="processing"] .state-processing,
       #mic[data-state="done"] .state-done,
       #mic[data-state="confirm-discard"] .state-confirm-discard,
+      #mic[data-state="notice"] .state-notice,
       #mic[data-state="paste-fallback"] .state-paste-fallback {
         opacity: 1;
         transform: translate(-50%, -50%);
@@ -102,6 +103,20 @@
         font-size: 12px;
         color: #f2b8b8;
         white-space: nowrap;
+      }
+
+      /* Transient notice: same lozenge shape as paste-fallback, but its text
+         is set at runtime and it auto-reverts to idle. Used to report why a
+         quick-menu action could not run, rather than failing silently. */
+      .state-notice {
+        width: 240px;
+        height: 36px;
+        padding: 0 14px;
+        font-size: 12px;
+        color: #d8d8d8;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       /* Paste-fallback (US-007): shown when refocus/paste fails; transcript
@@ -275,6 +290,12 @@
       <div class="layer state-confirm-discard" data-tauri-drag-region>
         <span>Discard? press Esc again</span>
       </div>
+      <!-- Transient message layer. A quick-menu action that fails (e.g. "Paste
+           last transcript" with nothing recorded yet) reports the reason here
+           instead of appearing to do nothing. -->
+      <div class="layer state-notice" data-tauri-drag-region>
+        <span id="notice-text"></span>
+      </div>
       <div class="layer state-paste-fallback" data-tauri-drag-region>
         <span>Copied &mdash; press Ctrl+V to paste</span>
       </div>
@@ -373,20 +394,34 @@
         }
       })();
 
-      // Right-click quick menu (US-009). Pre-mounted, invoke calls are
-      // no-ops on this dev branch until Rust wires the commands in
-      // US-009 (each is wrapped in .catch to avoid an uncaught rejection).
+      // Right-click quick menu (US-009). All commands are now backed by real
+      // Rust handlers in main.rs / pill_hittest.rs; invoke() stays wrapped in
+      // .catch to avoid an uncaught rejection if a call ever fails.
       (() => {
         const mic = document.getElementById('mic');
         const menu = document.getElementById('quick-menu');
 
+        // US-009: tell pill_hittest.rs when the menu is open so it widens the
+        // OS-level hit rect (data-menu="open") - without this, the pointer
+        // moving off the narrow pill rect onto the menu above it would flip
+        // the overlay back to click-through and the menu would become
+        // unclickable / dismiss itself.
+        const reportMenuOpen = (open) => {
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.core && typeof tauri.core.invoke === 'function') {
+            tauri.core.invoke('set_menu_open', { open }).catch(() => {});
+          }
+        };
+
         const openMenu = () => {
           menu.dataset.open = 'true';
           mic.dataset.menu = 'open';
+          reportMenuOpen(true);
         };
         const closeMenu = () => {
           menu.dataset.open = 'false';
           delete mic.dataset.menu;
+          reportMenuOpen(false);
         };
         const isOpen = () => menu.dataset.open === 'true';
 
@@ -403,12 +438,36 @@
           if (e.key === 'Escape' && isOpen()) closeMenu();
         });
 
+        // Show a short message in the pill, then return it to idle. Reverts
+        // only if nothing else has changed the state in the meantime, so a
+        // dictation started during the notice is never clobbered.
+        let noticeTimer = null;
+        const showNotice = (message) => {
+          const el = document.getElementById('notice-text');
+          if (!el) return;
+          el.textContent = message;
+          mic.dataset.state = 'notice';
+          if (noticeTimer) clearTimeout(noticeTimer);
+          noticeTimer = setTimeout(() => {
+            if (mic.dataset.state === 'notice') mic.dataset.state = 'idle';
+          }, 2400);
+        };
+
         menu.querySelectorAll('.menu-item').forEach((btn) => {
           btn.addEventListener('click', () => {
             const cmd = btn.dataset.action;
             const tauri = window.__TAURI__;
             if (tauri && tauri.core && typeof tauri.core.invoke === 'function') {
-              tauri.core.invoke(cmd).catch(() => {});
+              // A swallowed rejection made a typo'd data-action, an
+              // unregistered command and a real error ("No transcript yet")
+              // all look identical: the menu item simply did nothing. Report
+              // the reason instead.
+              tauri.core.invoke(cmd).catch((err) => {
+                console.error('[Typr] menu action failed:', cmd, err);
+                showNotice(typeof err === 'string' ? err : 'That action could not run');
+              });
+            } else {
+              showNotice('Menu unavailable outside the app');
             }
             closeMenu();
           });

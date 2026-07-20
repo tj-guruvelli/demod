@@ -11,7 +11,8 @@
 //! event-driven: no timers, no polling, no JS involvement.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -29,6 +30,17 @@ use crate::AppState;
 const PILL_HIT_W: f64 = 200.0;
 const PILL_HIT_H: f64 = 48.0;
 const PILL_CENTER_FROM_BOTTOM: f64 = 36.0;
+/// US-009: while the quick menu is open (data-menu="open" in overlay.html),
+/// widen the interactive rect's height so the menu growing upward from the
+/// pill (up to the 440x160 host's own bounds) never falls outside the
+/// click-through/hittable region and dismisses itself as the pointer moves
+/// onto it. Width is untouched: the menu's min-width (170px) is already
+/// narrower than PILL_HIT_W (200px).
+const MENU_HIT_H: f64 = 160.0;
+/// A press-release under this long, with under this much movement, is a
+/// click (opens the main window); anything else is the existing drag.
+const CLICK_MAX_MS: u64 = 200;
+const CLICK_MAX_MOVE_PX: i32 = 4;
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static HOOK: AtomicIsize = AtomicIsize::new(0);
@@ -41,6 +53,19 @@ static RECT_RIGHT: AtomicI32 = AtomicI32::new(0);
 static RECT_BOTTOM: AtomicI32 = AtomicI32::new(0);
 static CURSOR_INSIDE: AtomicBool = AtomicBool::new(false);
 static DRAGGING: AtomicBool = AtomicBool::new(false);
+/// Set via the `set_menu_open` Tauri command invoked from overlay.html's
+/// openMenu/closeMenu. Read only off the hot WM_MOUSEMOVE path (used to
+/// recompute the cached rect), so it costs nothing there.
+static MENU_OPEN: AtomicBool = AtomicBool::new(false);
+/// (press instant, screen x, screen y) recorded on WM_LBUTTONDOWN while the
+/// cursor is inside the pill; consumed on the matching WM_LBUTTONUP to
+/// discriminate a click from a drag. LBUTTONDOWN/UP are rare compared to
+/// MOUSEMOVE, so a Mutex here (unlike the mousemove path) is fine.
+static PRESS_INFO: OnceLock<Mutex<Option<(Instant, i32, i32)>>> = OnceLock::new();
+
+fn press_info() -> &'static Mutex<Option<(Instant, i32, i32)>> {
+    PRESS_INFO.get_or_init(|| Mutex::new(None))
+}
 
 /// Make the overlay click-through and start the cursor hit-test. Must be
 /// called once from setup on the main thread: WH_MOUSE_LL delivers its
@@ -121,7 +146,12 @@ fn update_pill_rect(overlay: &WebviewWindow) {
     let center_x = pos.x as f64 + size.width as f64 / 2.0;
     let center_y = pos.y as f64 + size.height as f64 - PILL_CENTER_FROM_BOTTOM * scale;
     let half_w = PILL_HIT_W * scale / 2.0;
-    let half_h = PILL_HIT_H * scale / 2.0;
+    let hit_h = if MENU_OPEN.load(Ordering::Relaxed) {
+        MENU_HIT_H
+    } else {
+        PILL_HIT_H
+    };
+    let half_h = hit_h * scale / 2.0;
     RECT_LEFT.store((center_x - half_w) as i32, Ordering::Relaxed);
     RECT_RIGHT.store((center_x + half_w) as i32, Ordering::Relaxed);
     RECT_TOP.store((center_y - half_h) as i32, Ordering::Relaxed);
@@ -138,11 +168,21 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 // drag; stay interactive until the button is released.
                 if CURSOR_INSIDE.load(Ordering::Relaxed) {
                     DRAGGING.store(true, Ordering::Relaxed);
+                    *press_info().lock().unwrap() = Some((Instant::now(), point.x, point.y));
                 }
             }
             WM_LBUTTONUP => {
                 if DRAGGING.swap(false, Ordering::Relaxed) {
-                    on_drag_end();
+                    let pressed = press_info().lock().unwrap().take();
+                    let is_click = matches!(pressed, Some((t0, x0, y0))
+                        if t0.elapsed() < Duration::from_millis(CLICK_MAX_MS)
+                            && (point.x - x0).abs() <= CLICK_MAX_MOVE_PX
+                            && (point.y - y0).abs() <= CLICK_MAX_MOVE_PX);
+                    if is_click {
+                        on_click();
+                    } else {
+                        on_drag_end();
+                    }
                 }
             }
             _ => {}
@@ -183,6 +223,34 @@ fn on_drag_end() {
     let Some(app) = APP.get() else { return };
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || clamp_and_persist(&handle));
+}
+
+/// US-009: a quick press-release on the pill (no drag) shows and focuses the
+/// main Typr settings window. Dispatched off the hook thread via
+/// run_on_main_thread, same pattern as on_drag_end/set_interactive.
+fn on_click() {
+    let Some(app) = APP.get() else { return };
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(main) = handle.get_webview_window("main") {
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+    });
+}
+
+/// US-009: called from the `set_menu_open` Tauri command (overlay.html's
+/// openMenu/closeMenu). Recomputes the cached hit-test rect immediately so
+/// the widened region takes effect without waiting for a window Moved event.
+pub fn set_menu_open(open: bool) {
+    MENU_OPEN.store(open, Ordering::Relaxed);
+    let Some(app) = APP.get() else { return };
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(overlay) = handle.get_webview_window("overlay") {
+            update_pill_rect(&overlay);
+        }
+    });
 }
 
 /// After any pill left-button release (drag end or plain click), clamp the

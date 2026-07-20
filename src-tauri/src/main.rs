@@ -297,6 +297,16 @@ fn menu_quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// US-009: overlay.html's openMenu/closeMenu report the quick menu's open
+/// state so pill_hittest.rs can widen the pill's OS-level hit rect while the
+/// menu is open (data-menu="open") - otherwise the pointer moving off the
+/// narrow pill rect and onto the menu above it would flip the overlay back
+/// to click-through and the menu would become unclickable / dismiss itself.
+#[tauri::command]
+fn set_menu_open(open: bool) {
+    pill_hittest::set_menu_open(open);
+}
+
 fn main() {
     let app_dir = get_app_dir();
     let settings = Settings::load(&app_dir);
@@ -326,6 +336,7 @@ fn main() {
             menu_paste_last,
             menu_open_settings,
             menu_quit,
+            set_menu_open,
         ])
         .setup(move |app| {
             // Create the overlay window: a Wispr-style status pill, bottom-center,
