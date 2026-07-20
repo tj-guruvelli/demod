@@ -62,6 +62,8 @@ pub async fn transcribe_groq(
     api_key: &str,
     audio_path: &PathBuf,
     language: &str,
+    dictionary: &str,
+    model: &str,
 ) -> Result<String, String> {
     if api_key.is_empty() {
         return Err("Groq API key not set. Please enter your API key in settings.".to_string());
@@ -80,11 +82,16 @@ pub async fn transcribe_groq(
     // with no indication. Groq follows the OpenAI API, where "auto" is NOT a
     // valid value: detection is requested by omitting the field entirely.
     let mut form = multipart::Form::new()
-        .text("model", "whisper-large-v3-turbo")
+        .text("model", model.to_string())
         .text("response_format", "json")
         .part("file", file_part);
     if language != "auto" {
         form = form.text("language", language.to_string());
+    }
+    // Same purpose as whisper.cpp's --prompt: bias the model toward the user's
+    // own vocabulary. The API ignores an empty value, so only send a real one.
+    if !dictionary.trim().is_empty() {
+        form = form.text("prompt", dictionary.trim().to_string());
     }
 
     let client = reqwest::Client::new();
@@ -120,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_api_key() {
         let path = PathBuf::from("/tmp/test.wav");
-        let result = transcribe_groq("", &path, "en").await;
+        let result = transcribe_groq("", &path, "en", "", "whisper-large-v3").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("API key not set"));
     }

@@ -22,6 +22,30 @@ pub struct Settings {
     /// are unchanged.
     #[serde(default = "default_language")]
     pub language: String,
+    /// Words the recogniser should get right - names, jargon, product terms.
+    /// Passed to the engine as an initial prompt, which biases recognition
+    /// toward these spellings. Wispr calls this a dictionary.
+    #[serde(default)]
+    pub dictionary: String,
+    /// Groq model id. Was hardcoded to whisper-large-v3-turbo, a distilled
+    /// build that trades real accuracy for speed - the likely cause of mangled
+    /// words. Defaults to full whisper-large-v3 for accuracy; turbo remains
+    /// selectable for anyone who wants the latency instead.
+    #[serde(rename = "cloudModel", default = "default_cloud_model")]
+    pub cloud_model: String,
+    /// Paste the transcript into the focused app (true, the default) or only
+    /// place it on the clipboard for the user to paste themselves.
+    #[serde(rename = "autoPaste", default = "default_true")]
+    pub auto_paste: bool,
+    /// Append a trailing space so back-to-back dictations do not run together.
+    #[serde(rename = "trailingSpace", default)]
+    pub trailing_space: bool,
+    /// Capitalise the first letter of each sentence.
+    #[serde(default = "default_true")]
+    pub capitalize: bool,
+    /// Add a full stop when the transcript ends without terminal punctuation.
+    #[serde(rename = "ensurePunctuation", default = "default_true")]
+    pub ensure_punctuation: bool,
     /// Overlay window top-left in physical px, persisted after the user
     /// drags the pill (US-002). None = default bottom-center placement.
     /// Owned by Rust (pill_hittest), not the settings UI — save_settings
@@ -49,6 +73,10 @@ fn default_language() -> String {
     "en".to_string()
 }
 
+fn default_cloud_model() -> String {
+    "whisper-large-v3".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -59,6 +87,12 @@ impl Default for Settings {
             recording_mode: "auto".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             language: "en".to_string(),
+            dictionary: String::new(),
+            cloud_model: "whisper-large-v3".to_string(),
+            auto_paste: true,
+            trailing_space: false,
+            capitalize: true,
+            ensure_punctuation: true,
             overlay_x: None,
             overlay_y: None,
             interaction_sounds: true,

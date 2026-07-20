@@ -56,6 +56,7 @@ const localLanguageSettings = document.getElementById("local-language-settings")
 const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
 const soundsSwitch = document.getElementById("sounds-switch")!;
 const overlaySwitch = document.getElementById("overlay-switch")!;
+const autostartSwitch = document.getElementById("autostart-switch")!;
 const dockPositionText = document.getElementById("dock-position-text")!;
 const footerSidecar = document.getElementById("footer-sidecar")!;
 const footerModel = document.getElementById("footer-model")!;
@@ -327,6 +328,16 @@ function setOverlayVisible(enabled: boolean) {
   refreshAdvisories();
 }
 
+/// Reflects real Windows autostart state in the switch. This is NOT part of
+/// `currentSettings`/save_settings — it is backed by the registry Run key
+/// (and legacy Startup-folder shortcut) directly, read/written via their own
+/// commands, so the switch position must always be set from an actual read
+/// or write result, never assumed.
+function setAutostartSwitch(enabled: boolean) {
+  autostartSwitch.classList.toggle("active", enabled);
+  autostartSwitch.setAttribute("aria-checked", String(enabled));
+}
+
 /// Single owner of the advisory state. Two independent warnings that each
 /// cleared "the" notice stomped each other, and a successful save wiped one
 /// of them outright - so all advisory decisions live here, with explicit
@@ -593,6 +604,39 @@ overlaySwitch.addEventListener("click", () => {
   saveSettings();
 });
 
+// Launch at startup: not part of currentSettings/save_settings — each click
+// calls the real enable/disable command and the switch only ever shows what
+// that command actually achieved. On failure, re-query the true state rather
+// than assume the prior one still holds (the enable/disable command may have
+// partially applied before failing, e.g. deleted the .lnk but failed the
+// registry write).
+autostartSwitch.addEventListener("click", async () => {
+  const wasEnabled = autostartSwitch.getAttribute("aria-checked") === "true";
+  const nextEnabled = !wasEnabled;
+  autostartSwitch.setAttribute("aria-disabled", "true");
+  try {
+    await invoke(nextEnabled ? "autostart_enable" : "autostart_disable");
+    setAutostartSwitch(nextEnabled);
+  } catch (err) {
+    console.error("[Typr] autostart toggle failed:", err);
+    showAppNotice(
+      nextEnabled
+        ? `Could not enable launch at startup: ${err}`
+        : `Could not disable launch at startup: ${err}`
+    );
+    try {
+      const actual = await invoke<boolean>("autostart_get_state");
+      setAutostartSwitch(actual);
+    } catch {
+      // Could not even re-read the true state — leave the switch as it was
+      // rather than assert either state we didn't verify.
+      setAutostartSwitch(wasEnabled);
+    }
+  } finally {
+    autostartSwitch.removeAttribute("aria-disabled");
+  }
+});
+
 languageSelect.addEventListener("change", () => {
   setLanguage(languageSelect.value);
   saveSettings();
@@ -769,6 +813,16 @@ invoke<string>("get_recording_state")
   .catch(() => {
     // Never assert "Ready" we did not read.
     statusText.textContent = "Unknown";
+  });
+
+// Launch-at-startup switch: read the REAL registry/.lnk state. Never default
+// this to on or off — a failed read leaves the switch in its last-known
+// (initial "off") position and surfaces the error, rather than guessing.
+invoke<boolean>("autostart_get_state")
+  .then(setAutostartSwitch)
+  .catch((err) => {
+    console.error("[Typr] autostart_get_state failed:", err);
+    showAppNotice("Could not read the launch-at-startup state, so the switch above may not reflect reality.");
   });
 
 // Listen for recording state changes

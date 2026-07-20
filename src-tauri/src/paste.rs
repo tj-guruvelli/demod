@@ -91,6 +91,24 @@ pub fn decide_focus(target: Option<PasteTarget>, foreground: Option<PasteTarget>
     }
 }
 
+/// Put the transcript on the clipboard WITHOUT typing it into any window.
+///
+/// Used when the user has turned auto-paste off: they want dictation to reach
+/// the clipboard and nothing else. Deliberately does NOT save and restore their
+/// previous clipboard, because here the transcript IS the intended result
+/// rather than a transient carrier for a keystroke.
+#[cfg(target_os = "windows")]
+pub fn copy_only(text: &str) -> bool {
+    windows_impl::write_transcript_clipboard(text)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn copy_only(text: &str) -> bool {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text.to_string()))
+        .is_ok()
+}
+
 /// Snapshot the currently focused window so a later `paste_text` call can
 /// re-target it even if the user has since switched apps. Call this the
 /// instant capture stops, not at paste time (paste time is after the slow

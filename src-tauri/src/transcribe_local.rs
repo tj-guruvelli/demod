@@ -54,6 +54,7 @@ pub async fn transcribe_local(
     model_path: &PathBuf,
     audio_path: &PathBuf,
     language: &str,
+    dictionary: &str,
 ) -> Result<String, String> {
     if !model_path.exists() {
         return Err("Whisper model not found. Please download a model first.".to_string());
@@ -72,7 +73,7 @@ pub async fn transcribe_local(
     println!("[Typr] Running whisper.cpp sidecar with model {:?}", model_path);
 
     let threads = whisper_threads().to_string();
-    let output = app
+    let mut cmd = app
         .shell()
         .sidecar("whisper-cpp")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
@@ -87,7 +88,15 @@ pub async fn transcribe_local(
             language,
             "-t",
             &threads,
-        ])
+        ]);
+    // whisper.cpp biases recognition toward an initial prompt, which is how a
+    // custom dictionary (names, jargon, product terms) actually takes effect.
+    // Only pass it when there is one - an empty prompt is not the same as none.
+    let dict = dictionary.trim();
+    if !dict.is_empty() {
+        cmd = cmd.args(["--prompt", dict]);
+    }
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run whisper.cpp: {}", e))?;

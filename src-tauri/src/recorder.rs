@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as HotkeyState};
 
 use crate::audio::AudioRecorder;
-use crate::cleanup::cleanup_text;
+use crate::cleanup::{cleanup_text, CleanupOptions};
 use crate::paste::{capture_foreground_window, paste_text, PasteOutcome};
 use crate::settings::Settings;
 use crate::transcribe_local;
@@ -369,6 +369,8 @@ impl Recorder {
         let whisper_model = settings.whisper_model.clone();
         let groq_api_key = settings.groq_api_key.clone();
         let language = settings.language.clone();
+        let dictionary = settings.dictionary.clone();
+        let cloud_model = settings.cloud_model.clone();
         let temp_path_for_engine = temp_path.clone();
         let app_dir_for_engine = app_dir.clone();
         let app_for_engine = app.clone();
@@ -382,6 +384,7 @@ impl Recorder {
                         &model_path,
                         &temp_path_for_engine,
                         &language,
+                        &dictionary,
                     )
                     .await
                 }
@@ -390,6 +393,8 @@ impl Recorder {
                         &groq_api_key,
                         &temp_path_for_engine,
                         &language,
+                        &dictionary,
+                        &cloud_model,
                     )
                     .await
                 }
@@ -427,7 +432,15 @@ impl Recorder {
         let _ = std::fs::remove_file(&temp_path);
 
         // Clean up text
-        let cleaned = cleanup_text(&raw_text);
+        // Post-processing is now the user's choice rather than hardcoded.
+        let cleaned = cleanup_text(
+            &raw_text,
+            &CleanupOptions {
+                capitalize: settings.capitalize,
+                ensure_punctuation: settings.ensure_punctuation,
+                trailing_space: settings.trailing_space,
+            },
+        );
 
         // Auto-paste into the window that was focused when capture stopped
         // (US-007). None = nothing to paste, so there is no outcome to report.
@@ -435,7 +448,14 @@ impl Recorder {
             None
         } else {
             *self.last_transcript.lock().unwrap() = Some(cleaned.clone());
-            Some(paste_text(&cleaned, paste_target))
+            if settings.auto_paste {
+                Some(paste_text(&cleaned, paste_target))
+            } else {
+                // Copy-only mode: the user asked us not to type into their app,
+                // so put it on the clipboard and say so rather than pasting.
+                crate::paste::copy_only(&cleaned);
+                Some(PasteOutcome::Fallback)
+            }
         };
 
         // Reset state

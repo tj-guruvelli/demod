@@ -16,6 +16,7 @@ use typr_lib::settings::Settings;
 use typr_lib::transcribe_groq::{self, GroqKeyCheck};
 use typr_lib::transcribe_local;
 
+mod autostart;
 mod pill_hittest;
 mod sounds;
 
@@ -670,6 +671,9 @@ fn main() {
             menu_quit,
             set_menu_open,
             set_hotkey,
+            autostart::autostart_get_state,
+            autostart::autostart_enable,
+            autostart::autostart_disable,
         ])
         .setup(move |app| {
             // Create the overlay window: a Wispr-style status pill, bottom-center,
