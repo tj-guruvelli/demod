@@ -213,6 +213,19 @@ async fn do_toggle_recording(
     }
 }
 
+/// Log that a dictation completed WITHOUT logging what was dictated.
+///
+/// This app transcribes whatever the user says, which routinely includes
+/// things that must never reach a log: passwords read aloud, private
+/// messages, client data. The release binary is GUI-subsystem, but Windows
+/// still honours inherited stdout/stderr handles, so anything launching Typr
+/// with redirection (a log wrapper, a scheduler, a monitoring agent) would
+/// capture every transcript verbatim and durably. Length is enough to confirm
+/// the pipeline worked; the content is the user's, not ours.
+fn log_transcript(result: &str) {
+    println!("[Typr] Transcription complete: {} chars", result.chars().count());
+}
+
 /// Same one-line eval pattern recorder.rs uses for the pill's data-state
 /// (see recorder.rs::set_overlay_state) — kept as a small local duplicate
 /// here rather than exporting recorder's private helper, since recorder.rs
@@ -458,7 +471,7 @@ fn main() {
                                             &settings,
                                             &state.app_dir,
                                         ).await {
-                                            Ok(result) => println!("[Typr] Transcription: {}", result),
+                                            Ok(result) => log_transcript(&result),
                                             Err(e) => eprintln!("[Typr] Transcription error: {}", e),
                                         }
                                     }
@@ -532,7 +545,7 @@ fn main() {
                                             &settings,
                                             &state.app_dir,
                                         ).await {
-                                            Ok(result) => println!("[Typr] Transcription: {}", result),
+                                            Ok(result) => log_transcript(&result),
                                             Err(e) => eprintln!("[Typr] Transcription error: {}", e),
                                         }
                                     }
@@ -570,7 +583,7 @@ fn main() {
                                                 &settings,
                                                 &state.app_dir,
                                             ).await {
-                                                Ok(result) => println!("[Typr] Transcription: {}", result),
+                                                Ok(result) => log_transcript(&result),
                                                 Err(e) => eprintln!("[Typr] Transcription error: {}", e),
                                             }
                                         }

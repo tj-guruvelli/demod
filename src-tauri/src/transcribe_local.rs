@@ -96,7 +96,9 @@ pub async fn transcribe_local(
     }
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    println!("[Typr] Whisper output: {}", text);
+    // Length only, never the content: this is the user's dictated speech and
+    // may contain anything they said. See log_transcript in main.rs.
+    println!("[Typr] Whisper output: {} chars", text.chars().count());
     Ok(text)
 }
 
