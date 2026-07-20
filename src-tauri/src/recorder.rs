@@ -41,6 +41,40 @@ enum CancelGuard {
     ConfirmDiscard(Instant),
 }
 
+/// What an Esc press should do, decided purely from timing + current guard
+/// state (no locks, no I/O) so the rule itself - not just "it compiled" -
+/// can be unit tested. Mirrors the US-006 30s cancel guard exactly: under
+/// the guard, Esc always discards instantly; past the guard, the first Esc
+/// arms a confirm-discard prompt and a second Esc (while still armed)
+/// discards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EscAction {
+    /// Discard the recording immediately.
+    Discard,
+    /// Arm the confirm-discard prompt and start its auto-revert timer.
+    ArmConfirmDiscard,
+}
+
+/// Pure decision for a single Esc press. `elapsed` is how long the current
+/// recording has been running; `already_armed` is whether a confirm-discard
+/// prompt from an earlier Esc is still active.
+fn decide_esc_action(elapsed: Duration, already_armed: bool) -> EscAction {
+    let past_guard = elapsed >= Duration::from_secs(CANCEL_GUARD_SECS);
+    if !past_guard || already_armed {
+        EscAction::Discard
+    } else {
+        EscAction::ArmConfirmDiscard
+    }
+}
+
+/// Whether a pending auto-revert timer (armed at `armed_at`) is still the
+/// current one. A fresher Esc (a new arm, or a discard that cleared the
+/// guard) between the timer starting and firing must make this false, so
+/// the stale timer does nothing instead of clobbering newer state.
+fn is_current_confirm_discard(guard: CancelGuard, armed_at: Instant) -> bool {
+    matches!(guard, CancelGuard::ConfirmDiscard(t) if t == armed_at)
+}
+
 /// The overlay host window is fixed-size (see main.rs); the pill morphs
 /// entirely inside the webview off this data-state attribute. Never resize
 /// or reposition the OS window here - that is the flicker Wispr fixed.
@@ -154,9 +188,8 @@ impl Recorder {
                 None => return,
             };
             let already_armed = matches!(*cancel_guard.lock().unwrap(), CancelGuard::ConfirmDiscard(_));
-            let past_guard = started_at.elapsed() >= Duration::from_secs(CANCEL_GUARD_SECS);
 
-            if !past_guard || already_armed {
+            if decide_esc_action(started_at.elapsed(), already_armed) == EscAction::Discard {
                 // Under the guard: instant discard. Past the guard with the
                 // prompt already armed: this is the second Esc - discard.
                 // Deferred (see cancel_recording's doc comment).
@@ -184,7 +217,7 @@ impl Recorder {
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(CONFIRM_DISCARD_SECS)).await;
                 let mut guard = cancel_guard.lock().unwrap();
-                if matches!(*guard, CancelGuard::ConfirmDiscard(t) if t == armed_at) {
+                if is_current_confirm_discard(*guard, armed_at) {
                     *guard = CancelGuard::None;
                     drop(guard);
                     // A concurrent second Esc may have already discarded (and
@@ -367,5 +400,88 @@ mod tests {
     fn test_initial_state_is_ready() {
         let recorder = Recorder::new();
         assert_eq!(recorder.get_state(), RecordingState::Ready);
+    }
+
+    // US-006 Esc cancel guard: decide_esc_action ------------------------
+
+    #[test]
+    fn test_esc_under_guard_not_armed_discards_instantly() {
+        assert_eq!(
+            decide_esc_action(Duration::from_secs(1), false),
+            EscAction::Discard
+        );
+    }
+
+    #[test]
+    fn test_esc_under_guard_already_armed_still_discards() {
+        // Can't normally happen (the prompt only arms past the guard), but
+        // the rule must not accidentally re-arm on it - discard wins.
+        assert_eq!(
+            decide_esc_action(Duration::from_secs(1), true),
+            EscAction::Discard
+        );
+    }
+
+    #[test]
+    fn test_esc_past_guard_first_press_arms_confirm_discard() {
+        assert_eq!(
+            decide_esc_action(Duration::from_secs(CANCEL_GUARD_SECS + 1), false),
+            EscAction::ArmConfirmDiscard
+        );
+    }
+
+    #[test]
+    fn test_esc_past_guard_second_press_discards() {
+        assert_eq!(
+            decide_esc_action(Duration::from_secs(CANCEL_GUARD_SECS + 1), true),
+            EscAction::Discard
+        );
+    }
+
+    #[test]
+    fn test_esc_exactly_at_guard_boundary_counts_as_past_guard() {
+        // The real check is `>=`; this pins that boundary so a future
+        // off-by-one (e.g. switching to `>`) fails a test instead of only
+        // shifting the guard by one instant in production.
+        assert_eq!(
+            decide_esc_action(Duration::from_secs(CANCEL_GUARD_SECS), false),
+            EscAction::ArmConfirmDiscard
+        );
+    }
+
+    #[test]
+    fn test_esc_just_under_guard_boundary_discards() {
+        let just_under = Duration::from_secs(CANCEL_GUARD_SECS) - Duration::from_millis(1);
+        assert_eq!(decide_esc_action(just_under, false), EscAction::Discard);
+    }
+
+    // US-006 auto-revert debounce: is_current_confirm_discard ------------
+
+    #[test]
+    fn test_stale_timer_check_true_when_guard_still_matches_armed_at() {
+        let armed_at = Instant::now();
+        assert!(is_current_confirm_discard(
+            CancelGuard::ConfirmDiscard(armed_at),
+            armed_at
+        ));
+    }
+
+    #[test]
+    fn test_stale_timer_check_false_when_guard_already_cleared() {
+        let armed_at = Instant::now();
+        assert!(!is_current_confirm_discard(CancelGuard::None, armed_at));
+    }
+
+    #[test]
+    fn test_stale_timer_check_false_when_a_fresher_arm_replaced_it() {
+        let stale_armed_at = Instant::now();
+        std::thread::sleep(Duration::from_millis(2));
+        let fresher_armed_at = Instant::now();
+        // The guard now holds a newer arm than the timer that's checking -
+        // this stale timer must not treat itself as current.
+        assert!(!is_current_confirm_discard(
+            CancelGuard::ConfirmDiscard(fresher_armed_at),
+            stale_armed_at
+        ));
     }
 }

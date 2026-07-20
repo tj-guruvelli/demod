@@ -39,6 +39,41 @@ pub struct PasteTarget {
     pid: u32,
 }
 
+/// Focus-guard decision: does the current foreground window identity match
+/// the captured paste target? This is pure - it takes the current
+/// foreground window's identity as a plain value (however the caller
+/// obtained it) rather than querying the OS itself, so the actual
+/// comparison logic - including the hwnd-recycling defense described on
+/// `PasteTarget` - can be unit tested without any Win32 calls. `None` on
+/// either side is never a match: no captured target means there is nothing
+/// to paste into, and no reported foreground window (GetForegroundWindow
+/// briefly returns NULL around activation changes, UAC/secure-desktop
+/// switches, and lock/unlock) means nothing can be positively confirmed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusDecision {
+    /// The current foreground window is still the captured target: safe to
+    /// paste directly, no refocus needed.
+    Confirmed,
+    /// No target, or the current foreground window's identity does not
+    /// match the captured target (a different hwnd, or the same hwnd
+    /// recycled to a different owning process). The caller may still
+    /// attempt an OS-level refocus (impure, not covered by this function)
+    /// before falling back; with no target captured there is nothing to
+    /// refocus to.
+    NotConfirmed,
+}
+
+/// Pure comparison at the heart of the focus guard (see module docs and
+/// `FocusDecision`). Kept free of any Win32 calls so it can be exercised
+/// directly in tests; the Windows wrapper (`windows_impl::is_target_foreground`)
+/// supplies the live OS snapshot and calls this to decide.
+pub fn decide_focus(target: Option<PasteTarget>, foreground: Option<PasteTarget>) -> FocusDecision {
+    match (target, foreground) {
+        (Some(t), Some(fg)) if t.hwnd == fg.hwnd && t.pid == fg.pid => FocusDecision::Confirmed,
+        _ => FocusDecision::NotConfirmed,
+    }
+}
+
 /// Snapshot the currently focused window so a later `paste_text` call can
 /// re-target it even if the user has since switched apps. Call this the
 /// instant capture stops, not at paste time (paste time is after the slow
@@ -221,17 +256,11 @@ mod windows_impl {
 
     /// True only if the captured window is still the foreground window AND
     /// still belongs to the same process. The pid half defeats handle reuse:
-    /// a recycled HWND would otherwise pass as "the same window".
+    /// a recycled HWND would otherwise pass as "the same window". The
+    /// actual comparison lives in the pure `decide_focus` (see paste.rs
+    /// tests); this wrapper only supplies the live OS snapshot.
     pub fn is_target_foreground(t: super::PasteTarget) -> bool {
-        unsafe {
-            let fg = GetForegroundWindow();
-            if fg.0 as isize != t.hwnd {
-                return false;
-            }
-            let mut pid: u32 = 0;
-            GetWindowThreadProcessId(fg, Some(&mut pid));
-            pid == t.pid
-        }
+        super::decide_focus(Some(t), capture_foreground_window()) == super::FocusDecision::Confirmed
     }
 
     /// Windows bumps this counter on every clipboard WRITE by any process.
@@ -366,5 +395,73 @@ mod windows_impl {
             let _ = GlobalUnlock(hmem);
             Some(hmem.0 as isize)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(hwnd: isize, pid: u32) -> PasteTarget {
+        PasteTarget { hwnd, pid }
+    }
+
+    // US-007 focus guard: `None` target must never be treated as
+    // confirmed - there is nothing captured to paste into, so the caller
+    // must fall back regardless of what is currently in the foreground.
+    #[test]
+    fn test_decide_focus_no_captured_target_is_never_confirmed() {
+        assert_eq!(
+            decide_focus(None, Some(target(100, 1))),
+            FocusDecision::NotConfirmed
+        );
+    }
+
+    #[test]
+    fn test_decide_focus_no_target_and_no_foreground_is_never_confirmed() {
+        assert_eq!(decide_focus(None, None), FocusDecision::NotConfirmed);
+    }
+
+    // GetForegroundWindow transiently returns NULL around activation
+    // changes, UAC/secure-desktop switches, and lock/unlock. A captured
+    // target with no readable current foreground window must not be
+    // confirmed either - there is nothing to positively compare against.
+    #[test]
+    fn test_decide_focus_target_but_no_foreground_reading_is_not_confirmed() {
+        assert_eq!(
+            decide_focus(Some(target(100, 1)), None),
+            FocusDecision::NotConfirmed
+        );
+    }
+
+    #[test]
+    fn test_decide_focus_matching_hwnd_and_pid_is_confirmed() {
+        assert_eq!(
+            decide_focus(Some(target(100, 1)), Some(target(100, 1))),
+            FocusDecision::Confirmed
+        );
+    }
+
+    // The exact bug this guard exists to prevent: Windows recycles HWND
+    // values, so across a multi-second transcription the originally
+    // captured window can close and its handle get reissued to an
+    // unrelated window. A handle match with a differing owning process
+    // must NOT be treated as the same window.
+    #[test]
+    fn test_decide_focus_recycled_hwnd_different_pid_is_not_confirmed() {
+        assert_eq!(
+            decide_focus(Some(target(100, 1)), Some(target(100, 2))),
+            FocusDecision::NotConfirmed
+        );
+    }
+
+    // Same owning process, but a different window handle (e.g. the app
+    // opened a second window) - also not the captured window.
+    #[test]
+    fn test_decide_focus_different_hwnd_same_pid_is_not_confirmed() {
+        assert_eq!(
+            decide_focus(Some(target(100, 1)), Some(target(200, 1))),
+            FocusDecision::NotConfirmed
+        );
     }
 }
