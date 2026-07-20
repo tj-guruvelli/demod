@@ -368,6 +368,7 @@ impl Recorder {
         let engine = settings.engine.clone();
         let whisper_model = settings.whisper_model.clone();
         let groq_api_key = settings.groq_api_key.clone();
+        let language = settings.language.clone();
         let temp_path_for_engine = temp_path.clone();
         let app_dir_for_engine = app_dir.clone();
         let app_for_engine = app.clone();
@@ -376,7 +377,13 @@ impl Recorder {
                 "local" => {
                     let model_path =
                         app_dir_for_engine.join(transcribe_local::model_filename(&whisper_model));
-                    transcribe_local::transcribe_local(&app_for_engine, &model_path, &temp_path_for_engine).await
+                    transcribe_local::transcribe_local(
+                        &app_for_engine,
+                        &model_path,
+                        &temp_path_for_engine,
+                        &language,
+                    )
+                    .await
                 }
                 "cloud" => transcribe_groq::transcribe_groq(&groq_api_key, &temp_path_for_engine).await,
                 other => Err(format!("Unknown engine: {}", other)),

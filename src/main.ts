@@ -153,11 +153,15 @@ sidebar.addEventListener("mousedown", (e) => {
 
 let currentSettings: Settings;
 
-// Static catalog matching exactly the two sizes settings.rs / download_model
+// Static catalog matching exactly the sizes settings.rs / download_model
 // already support (US-014/015 §4.3 — do not list a model id Rust can't download).
+// "large-v3" id maps to ggml-large-v3.bin via the existing ggml-{id}.bin URL
+// scheme in transcribe_local::model_download_url — verified present at
+// https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
 const MODEL_CATALOG = [
   { id: "small", label: "Small", sizeLabel: "~466 MB", speedLabel: "Fast" },
   { id: "medium", label: "Medium", sizeLabel: "~1.5 GB", speedLabel: "Balanced" },
+  { id: "large-v3", label: "Large", sizeLabel: "~2.9 GB", speedLabel: "Slowest" },
 ] as const;
 
 // Only one download can run at a time — tracked so every row's Download button

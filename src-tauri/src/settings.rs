@@ -15,6 +15,13 @@ pub struct Settings {
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
+    /// Spoken language passed to whisper.cpp via `-l`. This was hardcoded to
+    /// "en", which silently mis-transcribed anyone dictating in another
+    /// language - there was no setting and no indication. "auto" lets whisper
+    /// detect it. Defaults to "en" so existing configs and existing behaviour
+    /// are unchanged.
+    #[serde(default = "default_language")]
+    pub language: String,
     /// Overlay window top-left in physical px, persisted after the user
     /// drags the pill (US-002). None = default bottom-center placement.
     /// Owned by Rust (pill_hittest), not the settings UI — save_settings
@@ -38,6 +45,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_language() -> String {
+    "en".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -47,6 +58,7 @@ impl Default for Settings {
             groq_api_key: String::new(),
             recording_mode: "auto".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
+            language: "en".to_string(),
             overlay_x: None,
             overlay_y: None,
             interaction_sounds: true,

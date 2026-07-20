@@ -53,6 +53,7 @@ pub async fn transcribe_local(
     app: &AppHandle,
     model_path: &PathBuf,
     audio_path: &PathBuf,
+    language: &str,
 ) -> Result<String, String> {
     if !model_path.exists() {
         return Err("Whisper model not found. Please download a model first.".to_string());
@@ -81,8 +82,9 @@ pub async fn transcribe_local(
             "-f",
             audio_path.to_str().unwrap(),
             "--no-timestamps",
+            // Was hardcoded "en". whisper.cpp accepts "auto" for detection.
             "-l",
-            "en",
+            language,
             "-t",
             &threads,
         ])
@@ -121,6 +123,7 @@ mod tests {
     fn test_model_filename() {
         assert_eq!(model_filename("small"), "ggml-small.bin");
         assert_eq!(model_filename("medium"), "ggml-medium.bin");
+        assert_eq!(model_filename("large-v3"), "ggml-large-v3.bin");
     }
 
     #[test]
@@ -128,6 +131,10 @@ mod tests {
         assert_eq!(
             model_download_url("small"),
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+        );
+        assert_eq!(
+            model_download_url("large-v3"),
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
         );
     }
 }
