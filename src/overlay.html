@@ -59,7 +59,9 @@
       #mic[data-state="idle"] .state-idle,
       #mic[data-state="listening"] .state-listening,
       #mic[data-state="processing"] .state-processing,
-      #mic[data-state="done"] .state-done {
+      #mic[data-state="done"] .state-done,
+      #mic[data-state="confirm-discard"] .state-confirm-discard,
+      #mic[data-state="paste-fallback"] .state-paste-fallback {
         opacity: 1;
         transform: translate(-50%, -50%);
         transition: opacity 150ms ease-out, transform 150ms ease-out;
@@ -67,14 +69,78 @@
       }
 
       /* Idle: near-invisible dark lozenge. Brightens/expands slightly on
-         hover so it reads as clickable (transform/opacity only). */
+         hover so it reads as clickable (transform/opacity only). Hover
+         emphasis (US-009): fully opaque + slight scale-up, still
+         transform/opacity only, composing with the centering transform. */
       .state-idle {
         width: 64px;
         height: 12px;
       }
       #mic[data-state="idle"] .state-idle:hover {
+        opacity: 1;
+        background: rgba(20, 20, 20, 0.95);
         transform: translate(-50%, -50%) scaleX(1.15) scaleY(1.2);
       }
+
+      /* Strengthened hover for the active (non-idle) layers: fully opaque,
+         slightly larger, transform/opacity only. */
+      .layer:hover {
+        background: rgba(20, 20, 20, 0.95);
+      }
+      #mic[data-state="listening"] .state-listening:hover,
+      #mic[data-state="processing"] .state-processing:hover,
+      #mic[data-state="done"] .state-done:hover {
+        transform: translate(-50%, -50%) scale(1.04);
+      }
+
+      /* Confirm-discard (US-006): shown after the first Esc past the 30s
+         guard; second Esc within 3s discards. */
+      .state-confirm-discard {
+        width: 220px;
+        height: 36px;
+        padding: 0 14px;
+        font-size: 12px;
+        color: #f2b8b8;
+        white-space: nowrap;
+      }
+
+      /* Paste-fallback (US-007): shown when refocus/paste fails; transcript
+         stays on the clipboard until the next state change. */
+      .state-paste-fallback {
+        width: 240px;
+        height: 36px;
+        padding: 0 14px;
+        font-size: 12px;
+        color: #d8d8d8;
+        white-space: nowrap;
+      }
+
+      /* Status dot (US-008): 8px dot pinned to the pill's corner, visible
+         only on the layers that carry state (listening/processing/done).
+         Color driven by #mic[data-dot] via CSS vars; crossfaded via
+         opacity only, never removed from the DOM. */
+      .status-dot {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--dot-color, transparent);
+        opacity: 0;
+        transition: opacity 150ms ease-out, background-color 150ms ease-out;
+        pointer-events: none;
+      }
+      #mic[data-state="listening"] .state-listening .status-dot,
+      #mic[data-state="processing"] .state-processing .status-dot,
+      #mic[data-state="done"] .state-done .status-dot {
+        opacity: 1;
+      }
+      #mic[data-dot="starting"] .status-dot { --dot-color: #e0c341; }
+      #mic[data-dot="processing"] .status-dot { --dot-color: #4a9ff5; }
+      #mic[data-dot="done"] .status-dot { --dot-color: #6fe08c; }
+      #mic[data-dot="off"] .status-dot,
+      #mic:not([data-dot]) .status-dot { opacity: 0; }
 
       /* Listening: waveform pill. 14 pre-created bars driven by real mic RMS
          (the script below writes transform: scaleY each frame; no transition
@@ -133,6 +199,47 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
+
+      /* Right-click quick menu (US-009): grows upward from the pill,
+         transform-origin bottom center, scale + opacity only, ~120ms.
+         Positioned above the pill, within the 440x160 host bounds. */
+      #quick-menu {
+        position: fixed;
+        left: 50%;
+        bottom: 64px;
+        transform: translateX(-50%) scale(0.95);
+        transform-origin: bottom center;
+        display: flex;
+        flex-direction: column;
+        min-width: 170px;
+        background: rgba(24, 24, 24, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        padding: 4px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease-out, transform 120ms ease-out;
+      }
+      #quick-menu[data-open="true"] {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+        pointer-events: auto;
+      }
+      #quick-menu .menu-item {
+        appearance: none;
+        border: none;
+        background: transparent;
+        color: #eaeaea;
+        font-family: inherit;
+        font-size: 12.5px;
+        text-align: left;
+        padding: 7px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      #quick-menu .menu-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
     </style>
   </head>
   <body>
@@ -153,15 +260,30 @@
         <div class="bar"></div>
         <div class="bar"></div>
         <div class="bar"></div>
+        <div class="status-dot"></div>
       </div>
       <div class="layer state-processing" data-tauri-drag-region>
         <div class="dot"></div>
         <div class="dot"></div>
         <div class="dot"></div>
+        <div class="status-dot"></div>
       </div>
       <div class="layer state-done" data-tauri-drag-region>
         <svg viewBox="0 0 24 24"><polyline points="5 12.5 10 17.5 19 7"/></svg>
+        <div class="status-dot"></div>
       </div>
+      <div class="layer state-confirm-discard" data-tauri-drag-region>
+        <span>Discard? press Esc again</span>
+      </div>
+      <div class="layer state-paste-fallback" data-tauri-drag-region>
+        <span>Copied &mdash; press Ctrl+V to paste</span>
+      </div>
+    </div>
+    <div id="quick-menu" data-open="false" role="menu">
+      <button class="menu-item" type="button" data-action="menu_hide_hour">Hide for 1 hour</button>
+      <button class="menu-item" type="button" data-action="menu_paste_last">Paste last transcript</button>
+      <button class="menu-item" type="button" data-action="menu_open_settings">Settings</button>
+      <button class="menu-item" type="button" data-action="menu_quit">Quit</button>
     </div>
     <script>
       // Waveform renderer: real mic RMS pushed from Rust (audio.rs emits
@@ -235,6 +357,62 @@
             if (level >= SILENCE_RMS) lastLoudAt = performance.now();
           });
         }
+      })();
+
+      // Status dot (US-008): Rust emits 'status-dot' with payload
+      // 'starting' | 'processing' | 'done' | 'off'. Stored as #mic
+      // dataset.dot; CSS keys off [data-dot=...] and crossfades opacity
+      // only. Same window-scoped listener pattern as 'audio-level'.
+      (() => {
+        const mic = document.getElementById('mic');
+        const tauri = window.__TAURI__;
+        if (tauri && tauri.webviewWindow) {
+          tauri.webviewWindow.getCurrentWebviewWindow().listen('status-dot', (e) => {
+            mic.dataset.dot = e.payload;
+          });
+        }
+      })();
+
+      // Right-click quick menu (US-009). Pre-mounted, invoke calls are
+      // no-ops on this dev branch until Rust wires the commands in
+      // US-009 (each is wrapped in .catch to avoid an uncaught rejection).
+      (() => {
+        const mic = document.getElementById('mic');
+        const menu = document.getElementById('quick-menu');
+
+        const openMenu = () => {
+          menu.dataset.open = 'true';
+          mic.dataset.menu = 'open';
+        };
+        const closeMenu = () => {
+          menu.dataset.open = 'false';
+          delete mic.dataset.menu;
+        };
+        const isOpen = () => menu.dataset.open === 'true';
+
+        mic.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          openMenu();
+        });
+
+        document.addEventListener('mousedown', (e) => {
+          if (isOpen() && !menu.contains(e.target)) closeMenu();
+        });
+
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && isOpen()) closeMenu();
+        });
+
+        menu.querySelectorAll('.menu-item').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const cmd = btn.dataset.action;
+            const tauri = window.__TAURI__;
+            if (tauri && tauri.core && typeof tauri.core.invoke === 'function') {
+              tauri.core.invoke(cmd).catch(() => {});
+            }
+            closeMenu();
+          });
+        });
       })();
     </script>
   </body>
