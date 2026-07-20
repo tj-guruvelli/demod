@@ -32,6 +32,18 @@ const DONE_HOLD_MS: u64 = 400;
 /// failure as the early-return bug, just reached slowly instead of quickly.
 const TRANSCRIBE_TIMEOUT_SECS: u64 = 180;
 
+/// Deletes the recorded WAV when dropped, regardless of which
+/// `stop_and_transcribe` exit path (success, engine error, timeout) runs -
+/// see its construction site for why this replaced a single success-only
+/// `remove_file` call.
+struct TempWavGuard(PathBuf);
+
+impl Drop for TempWavGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
     Ready,
@@ -108,6 +120,14 @@ fn set_status_dot(app: &AppHandle, dot: &str) {
     let _ = app.emit_to("overlay", "status-dot", dot);
 }
 
+/// Fixed, actionable message for a `start_recording` failure reached from the
+/// hotkey path (main.rs). Never the raw engine error (e.g. "Microphone 'X'
+/// not found", "Failed to get default input config: ...") - that string can
+/// vary per device and is not meant for the webview; a mic-unavailable
+/// message the user can act on is.
+pub const MIC_START_FAILURE_MESSAGE: &str =
+    "Couldn't start recording: the microphone is unavailable or in use by another app. Check the selected microphone in Demod settings.";
+
 /// Map an engine error to a fixed, actionable message.
 ///
 /// The raw error is deliberately NOT shown: it can embody engine output or a
@@ -125,9 +145,9 @@ fn transcribe_failure_message(err: &str) -> &'static str {
         // while the selected model was medium. "No speech model yet" would
         // have been simply false, and would send the user looking for the
         // wrong problem.
-        "That speech model isn't downloaded. Open Typr settings to get it."
+        "That speech model isn't downloaded. Open Demod settings to get it."
     } else if e.contains("api key") {
-        "Groq needs an API key. Add one in Typr settings."
+        "Groq needs an API key. Add one in Demod settings."
     } else if e.contains("groq api error") {
         "The cloud transcription service rejected that request."
     } else if e.contains("timed out") || e.contains("connect") || e.contains("dns") {
@@ -162,7 +182,7 @@ fn cancel_recording(
     // new registration losing a race with the stale unregister, leaving Esc
     // silently unregistered for the new recording.
     if let Err(e) = app.global_shortcut().unregister(CANCEL_SHORTCUT) {
-        eprintln!("[Typr] Failed to unregister cancel (Esc) shortcut: {}", e);
+        eprintln!("[Demod] Failed to unregister cancel (Esc) shortcut: {}", e);
     }
     *state.lock().unwrap() = RecordingState::Ready;
     let _ = app.emit("recording-state", RecordingState::Ready);
@@ -268,7 +288,8 @@ impl Recorder {
         });
 
         if let Err(e) = result {
-            eprintln!("[Typr] Failed to register cancel (Esc) shortcut: {}", e);
+            eprintln!("[Demod] Failed to register cancel (Esc) shortcut: {}", e);
+            crate::applog::log_event_default("hotkey", &format!("Esc cancel shortcut registration failed: {}", e));
         }
     }
 
@@ -292,6 +313,25 @@ impl Recorder {
         Ok(())
     }
 
+    /// End an in-progress recording that no longer has a live owner - used
+    /// when the global hotkey is rebound (`set_hotkey` in main.rs) while the
+    /// user is still physically holding the OLD combination. Once the old
+    /// accelerator is unregistered its Released event can never arrive, so
+    /// without this the recorder is stranded in Recording forever (the same
+    /// permanently-dead-hotkey failure class `fail_to_ready` guards against
+    /// elsewhere, reached a different way). Cancels rather than transcribes:
+    /// a rebind is not a clean stop point, so discarding is the safe outcome.
+    /// No-op if nothing is currently recording.
+    pub fn cancel_if_recording(&self, app: &AppHandle) {
+        cancel_recording(
+            app,
+            &self.state,
+            &self.audio_recorder,
+            &self.recording_started_at,
+            &self.cancel_guard,
+        );
+    }
+
     /// Return to Ready after a dictation that could not finish, and tell the
     /// user what happened.
     ///
@@ -305,7 +345,7 @@ impl Recorder {
     ///
     /// `user_message` must be a fixed string, never raw engine output: it is
     /// shown to the user, and the underlying error goes to the log instead.
-    fn fail_to_ready(&self, app: &AppHandle, user_message: &str) {
+    pub fn fail_to_ready(&self, app: &AppHandle, user_message: &str) {
         {
             let mut state = self.state.lock().unwrap();
             *state = RecordingState::Ready;
@@ -349,7 +389,7 @@ impl Recorder {
         *self.recording_started_at.lock().unwrap() = None;
         *self.cancel_guard.lock().unwrap() = CancelGuard::None;
         if let Err(e) = app.global_shortcut().unregister(CANCEL_SHORTCUT) {
-            eprintln!("[Typr] Failed to unregister cancel (Esc) shortcut: {}", e);
+            eprintln!("[Demod] Failed to unregister cancel (Esc) shortcut: {}", e);
         }
 
         let temp_path = app_dir.join("temp_recording.wav");
@@ -365,6 +405,13 @@ impl Recorder {
                 return Err(e);
             }
         }
+        // Guarantee the WAV is deleted on every exit from here on - success,
+        // engine error, or timeout. Before this guard, only the success path
+        // removed it (see the old single `remove_file` call further down),
+        // so a failed or timed-out dictation left the user's recorded audio
+        // sitting in the app data dir indefinitely: a leak, and a privacy
+        // problem since it is exactly what they said.
+        let _temp_wav_guard = TempWavGuard(temp_path.clone());
 
         // Transcribe. Race the actual engine call against the 300ms
         // "instant feel" budget (US-008, research secs 1 & 7.5): if it
@@ -444,9 +491,6 @@ impl Recorder {
             }
         };
 
-        // Cleanup temp file
-        let _ = std::fs::remove_file(&temp_path);
-
         // Clean up text
         // Post-processing is now the user's choice rather than hardcoded.
         let cleaned = cleanup_text(
@@ -469,8 +513,15 @@ impl Recorder {
             } else {
                 // Copy-only mode: the user asked us not to type into their app,
                 // so put it on the clipboard and say so rather than pasting.
-                crate::paste::copy_only(&cleaned);
-                Some(PasteOutcome::Fallback)
+                // The write itself can fail (clipboard held by another app,
+                // etc.) - that must surface as Failed, never be reported as
+                // the same "copied, paste manually" Fallback state when
+                // nothing was actually copied.
+                if crate::paste::copy_only(&cleaned) {
+                    Some(PasteOutcome::Fallback)
+                } else {
+                    Some(PasteOutcome::Failed)
+                }
             }
         };
 
@@ -487,6 +538,14 @@ impl Recorder {
                 Some(PasteOutcome::Fallback) => {
                     set_overlay_state(app, "paste-fallback");
                     set_status_dot(app, "off");
+                }
+                // The transcript was not delivered anywhere - not even the
+                // clipboard. Must never fall into the success arm below:
+                // that would show the "done" tick for a dictation the user
+                // never actually received.
+                Some(PasteOutcome::Failed) => {
+                    drop(state);
+                    self.fail_to_ready(app, "Could not copy the transcript to the clipboard.");
                 }
                 // US-008: success shows the "done" tick + green dot for
                 // DONE_HOLD_MS, then relaxes to idle - deferred via spawn

@@ -84,7 +84,7 @@ impl AudioRecorder {
         let sample_rate = default_config.sample_rate().0;
         let channels = default_config.channels();
 
-        println!("[Typr] Mic config: {}Hz, {} channels", sample_rate, channels);
+        println!("[Demod] Mic config: {}Hz, {} channels", sample_rate, channels);
 
         self.source_sample_rate = sample_rate;
         self.source_channels = channels;
@@ -126,7 +126,8 @@ impl AudioRecorder {
                     }
                 },
                 |err| {
-                    eprintln!("[Typr] Audio stream error: {}", err);
+                    eprintln!("[Demod] Audio stream error: {}", err);
+                    crate::applog::log_event_default("audio", &format!("stream error: {}", err));
                 },
                 None,
             )
@@ -134,7 +135,7 @@ impl AudioRecorder {
 
         stream.play().map_err(|e| e.to_string())?;
         self.stream = Some(SendStream(stream));
-        println!("[Typr] Audio recording started");
+        println!("[Demod] Audio recording started");
         Ok(())
     }
 
@@ -144,19 +145,19 @@ impl AudioRecorder {
     pub fn cancel(&mut self) {
         self.stream = None; // Drop stops the stream
         self.samples.lock().unwrap().clear();
-        println!("[Typr] Audio recording cancelled (discarded)");
+        println!("[Demod] Audio recording cancelled (discarded)");
     }
 
     pub fn stop_and_save(&mut self, output_path: &PathBuf) -> Result<PathBuf, String> {
         self.stream = None; // Drop stops the stream
-        println!("[Typr] Audio recording stopped");
+        println!("[Demod] Audio recording stopped");
 
         let samples = self.samples.lock().unwrap();
         if samples.is_empty() {
             return Err("No audio captured".to_string());
         }
 
-        println!("[Typr] Captured {} raw samples", samples.len());
+        println!("[Demod] Captured {} raw samples", samples.len());
 
         // Convert to mono if multi-channel
         let mono: Vec<f32> = if self.source_channels > 1 {
@@ -170,7 +171,7 @@ impl AudioRecorder {
 
         // Downsample to 16kHz for whisper.cpp
         let resampled = resample(&mono, self.source_sample_rate, 16000);
-        println!("[Typr] Resampled to {} samples at 16kHz", resampled.len());
+        println!("[Demod] Resampled to {} samples at 16kHz", resampled.len());
 
         let spec = WavSpec {
             channels: 1,
@@ -189,7 +190,7 @@ impl AudioRecorder {
         drop(samples);
         self.samples.lock().unwrap().clear();
 
-        println!("[Typr] WAV saved to {:?}", output_path);
+        println!("[Demod] WAV saved to {:?}", output_path);
         Ok(output_path.clone())
     }
 }

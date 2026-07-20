@@ -1,24 +1,24 @@
-//! Windows autostart management for Typr.
+//! Windows autostart management for Demod.
 //!
 //! Exactly one autostart mechanism may be active at a time: the HKCU Run
 //! registry key. A shortcut in the per-user Startup folder was the
 //! (unmanaged, invisible-from-the-app) mechanism a prior manual install used;
-//! if both were ever active simultaneously, Typr would launch twice at boot
+//! if both were ever active simultaneously, Demod would launch twice at boot
 //! and the second process would silently lose the race for the global
 //! hotkey. So:
 //! - `enable` deletes the legacy .lnk (if present) before writing the Run key.
 //! - `disable` deletes the Run key AND the .lnk (if present) — belt and
-//!   suspenders, since disable must guarantee "nothing launches Typr at boot"
+//!   suspenders, since disable must guarantee "nothing launches Demod at boot"
 //!   regardless of how it got enabled.
 //! - `get_state` reports enabled if EITHER mechanism is present, since either
-//!   one alone is enough to launch Typr at boot.
+//!   one alone is enough to launch Demod at boot.
 
 use std::path::PathBuf;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
 use winreg::RegKey;
 
 const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE_NAME: &str = "Typr";
+const RUN_VALUE_NAME: &str = "Demod";
 
 fn current_exe_quoted() -> Result<String, String> {
     let exe = std::env::current_exe()
@@ -29,7 +29,7 @@ fn current_exe_quoted() -> Result<String, String> {
     Ok(format!("\"{}\"", exe_str))
 }
 
-/// %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Typr.lnk — the
+/// %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Demod.lnk — the
 /// legacy, unmanaged autostart mechanism this app must never leave active
 /// alongside the registry key.
 fn startup_lnk_path() -> Result<PathBuf, String> {
@@ -41,7 +41,7 @@ fn startup_lnk_path() -> Result<PathBuf, String> {
         .join("Start Menu")
         .join("Programs")
         .join("Startup")
-        .join("Typr.lnk"))
+        .join("Demod.lnk"))
 }
 
 /// Delete the legacy Startup-folder shortcut if it exists. Not finding it is
@@ -68,7 +68,7 @@ fn run_key_has_value() -> Result<bool, String> {
 }
 
 /// Reports "enabled" if EITHER the Run registry value or the legacy .lnk is
-/// present — either alone is sufficient to launch Typr at boot, so either
+/// present — either alone is sufficient to launch Demod at boot, so either
 /// alone means the feature reads as on.
 #[tauri::command]
 pub fn autostart_get_state() -> Result<bool, String> {
@@ -95,7 +95,7 @@ pub fn autostart_enable() -> Result<(), String> {
 }
 
 /// Disable: remove BOTH mechanisms, so "disabled" always means neither one
-/// can launch Typr at boot, regardless of which was active.
+/// can launch Demod at boot, regardless of which was active.
 #[tauri::command]
 pub fn autostart_disable() -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);

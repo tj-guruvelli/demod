@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Typr",
+  "productName": "Demod",
   "version": "0.1.0",
   "identifier": "com.typr.app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Typr",
+        "title": "Demod",
         "width": 900,
         "height": 600,
         "minWidth": 700,

@@ -82,14 +82,28 @@ const footerHotkey = document.getElementById("footer-hotkey")!;
 // ease-in/ease-out grammar) instead of an instant display swap.
 const navItems = Array.from(document.querySelectorAll<HTMLElement>(".nav-item"));
 
+// Tracked synchronously rather than read back via `.content-section.active`.
+// `.active` is only added to `next` asynchronously (rAF/setTimeout, see
+// `reveal` below), so a second activateTab() call arriving before that
+// callback runs would find NO section with `.active` yet, treat `current` as
+// null, skip its cleanup entirely, and leave it stuck visible. Reproduced by
+// firing all six tabs back-to-back with zero delay: five sections ended up
+// simultaneously `display:block; opacity:1`. Tracking the intended current
+// section in a plain variable, updated the instant a switch is decided
+// (not when the animation happens to catch up), makes cleanup targeting
+// correct regardless of how fast switches are requested.
+let activeSectionId: string | null =
+  (document.querySelector(".content-section.active") as HTMLElement | null)?.id ?? null;
+
 function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = {}) {
   const target = item.getAttribute("data-section");
-  const current = document.querySelector(".content-section.active") as HTMLElement | null;
+  const current = activeSectionId ? document.getElementById(activeSectionId) : null;
   const next = document.getElementById(`section-${target}`) as HTMLElement | null;
   if (!next || next === current) {
     if (focus) item.focus();
     return;
   }
+  activeSectionId = next.id;
 
   navItems.forEach((n) => {
     n.classList.remove("active");
@@ -104,15 +118,40 @@ function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = 
   if (current) {
     current.classList.add("leaving");
     current.classList.remove("active");
-    current.addEventListener(
-      "transitionend",
-      () => {
-        current.classList.remove("leaving");
-        current.style.display = "none";
-      },
-      { once: true }
-    );
+    // CRITICAL REGRESSION FIX: cleanup used to run ONLY on "transitionend".
+    // Transition events never fire when the window is hidden/occluded/
+    // backgrounded (same class of bug as rAF pausing) — so on a window that
+    // was hidden at the moment of a tab switch, `current` was left stuck
+    // with the "leaving" class forever. That alone was cosmetic (the section
+    // was hidden anyway), EXCEPT the section it belongs to could later become
+    // `next` again on a subsequent switch. `next.classList.add("active")`
+    // below only ADDS "active" — it never removed a leftover "leaving" — so
+    // a section could carry BOTH classes at once. Because `.content-section
+    // .leaving { opacity: 0 }` is declared AFTER `.content-section.active
+    // { opacity: 1 }` in style.css, equal-specificity cascade means .leaving
+    // wins: the pane got `display:block` but stayed invisible — a completely
+    // blank content area with a correctly-selected sidebar tab. Reproduced
+    // directly: General -> Recording -> General leaves General blank.
+    // Fix has two parts: (1) never let a section be revealed while still
+    // carrying "leaving" (below), and (2) never let cleanup depend solely on
+    // an event that can fail to fire — the setTimeout fallback guarantees it
+    // runs regardless, matching the rAF+setTimeout pattern already used for
+    // `reveal` below. Whichever runs first wins; both are idempotent.
+    const cleanupCurrent = () => {
+      // Guard against A -> B -> A back-to-back: if `current` was re-selected
+      // as `next` again before this fallback fired, it now carries "active"
+      // (not "leaving") and must be left alone — otherwise this stale
+      // callback would hide the section the user is currently looking at.
+      if (!current.classList.contains("leaving")) return;
+      current.classList.remove("leaving");
+      current.style.display = "none";
+    };
+    current.addEventListener("transitionend", cleanupCurrent, { once: true });
+    setTimeout(cleanupCurrent, 200);
   }
+  // Never reveal a section that still carries a stale "leaving" class from a
+  // prior switch whose cleanup hadn't run yet — see the note above.
+  next.classList.remove("leaving");
   next.style.display = "block";
   // rAF so the browser commits `display:block` before the class flips -
   // otherwise the opacity/transform transition has no paint to animate from.
@@ -124,7 +163,20 @@ function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = 
   // opacity 0. Never let a functional visibility change depend on a frame
   // being painted; the animation is decoration, the content is not.
   // Whichever fires first wins; classList.add is idempotent.
-  const reveal = () => next.classList.add("active");
+  const reveal = () => {
+    // Guard against a superseded switch: if another activateTab() call has
+    // since made a different section current, this callback belongs to a
+    // switch the user has already navigated away from. Without this check,
+    // firing anyway blindly re-adds "active" to a section that was
+    // correctly marked "leaving" (or already hidden) by the newer switch —
+    // reproduced by firing all six tabs back-to-back with no delay: every
+    // superseded section ended up stuck as `display:block` with the
+    // "active" class (opacity:0 from a still-pending "leaving" transition,
+    // but present in the layout and in the DOM's notion of "active").
+    if (activeSectionId !== next.id) return;
+    next.classList.remove("leaving");
+    next.classList.add("active");
+  };
   requestAnimationFrame(reveal);
   setTimeout(reveal, 60);
 }
@@ -343,7 +395,7 @@ async function loadSettings() {
     option.selected = true;
     micSelect.appendChild(option);
     micSelect.disabled = true;
-    showAppNotice("No microphone detected, so Typr cannot record. Connect one and reopen Settings.");
+    showAppNotice("No microphone detected, so Demod cannot record. Connect one and reopen Settings.");
   } else {
     micSelect.disabled = false;
     mics.forEach((mic) => {
@@ -484,7 +536,7 @@ function refreshAdvisories() {
     showAppNotice("Groq Cloud is selected but no API key is set, so dictation will fail.", "warn");
   } else if (silent) {
     showAppNotice(
-      "With both the overlay and interaction sounds off, nothing will show that Typr is recording.",
+      "With both the overlay and interaction sounds off, nothing will show that Demod is recording.",
       "warn"
     );
   } else if (appNotice.dataset.kind === "warn") {
@@ -582,7 +634,7 @@ async function saveSettings(): Promise<boolean> {
   } catch (err) {
     // The control has already moved on screen, so staying silent here would
     // leave the user believing a setting persisted when it did not.
-    console.error("[Typr] save_settings failed:", err);
+    console.error("[Demod] save_settings failed:", err);
     showAppNotice("Could not save your settings, so that last change was not kept.");
     return false;
   }
@@ -699,7 +751,7 @@ groqTestBtn.addEventListener("click", async () => {
       setStatusBadge(groqTestStatus, "Unknown result", "status-error");
     }
   } catch (err) {
-    console.error("[Typr] test_groq_connection failed:", err);
+    console.error("[Demod] test_groq_connection failed:", err);
     setStatusBadge(groqTestStatus, "Could not run the test", "status-error");
     showAppNotice("Could not test the Groq connection.", "error");
   } finally {
@@ -746,7 +798,7 @@ autostartSwitch.addEventListener("click", async () => {
     await invoke(nextEnabled ? "autostart_enable" : "autostart_disable");
     setAutostartSwitch(nextEnabled);
   } catch (err) {
-    console.error("[Typr] autostart toggle failed:", err);
+    console.error("[Demod] autostart toggle failed:", err);
     showAppNotice(
       nextEnabled
         ? `Could not enable launch at startup: ${err}`
@@ -810,7 +862,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-preview]").forEach((btn) => 
       await invoke("preview_sound", { which });
       if (appNotice.dataset.kind === "error") clearAppNotice();
     } catch (err) {
-      console.error("[Typr] preview_sound failed:", err);
+      console.error("[Demod] preview_sound failed:", err);
       showAppNotice(String(err), "error");
     }
   });
@@ -870,12 +922,29 @@ function stopHotkeyCapture() {
     window.removeEventListener("keydown", hotkeyCaptureKeydownHandler, true);
     hotkeyCaptureKeydownHandler = null;
   }
+  window.removeEventListener("pointerdown", onWindowPointerDownOutsideCapture, true);
+  window.removeEventListener("blur", stopHotkeyCapture);
+}
+
+// Teardown when focus/attention leaves the capture control without a commit
+// or Escape (e.g. clicking elsewhere in the settings window). Without this,
+// the capture-phase window keydown listener stays installed indefinitely,
+// and its preventDefault()/stopPropagation() swallows every keystroke in the
+// window — including typing in the Groq API key field or the dictionary
+// textarea — with no visible sign anything is wrong.
+function onWindowPointerDownOutsideCapture(e: PointerEvent) {
+  if (e.target instanceof Node && hotkeyCapture.contains(e.target)) return;
+  stopHotkeyCapture();
+  hotkeyMessage.textContent = "";
+  hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
 }
 
 function startHotkeyCapture() {
   if (hotkeyCaptureKeydownHandler) return; // already capturing
   hotkeyCapture.classList.add("capturing");
   hotkeyMessage.textContent = "Press a key combination… (Esc cancels)";
+  window.addEventListener("pointerdown", onWindowPointerDownOutsideCapture, true);
+  window.addEventListener("blur", stopHotkeyCapture);
 
   const onKeyDown = async (e: KeyboardEvent) => {
     e.preventDefault();
@@ -924,7 +993,7 @@ function startHotkeyCapture() {
       // The backend already rolled back to the previous accelerator, so
       // reflect that - never leave the display showing a hotkey that isn't
       // actually the one registered.
-      console.error("[Typr] set_hotkey failed:", err);
+      console.error("[Demod] set_hotkey failed:", err);
       hotkeyText.textContent = formatHotkey(currentSettings.hotkey);
       hotkeyMessage.textContent = String(err);
     }
@@ -976,7 +1045,7 @@ invoke<string>("get_recording_state")
 invoke<boolean>("autostart_get_state")
   .then(setAutostartSwitch)
   .catch((err) => {
-    console.error("[Typr] autostart_get_state failed:", err);
+    console.error("[Demod] autostart_get_state failed:", err);
     showAppNotice("Could not read the launch-at-startup state, so the switch above may not reflect reality.");
   });
 
@@ -993,6 +1062,6 @@ listen<DownloadProgress>("download-progress", (event) => {
 // A rejection here used to abort mid-population, leaving a half-filled window
 // (blank mic list, unrendered model cards) with nothing saying why.
 loadSettings().catch((err) => {
-  console.error("[Typr] loadSettings failed:", err);
+  console.error("[Demod] loadSettings failed:", err);
   showAppNotice("Could not load your settings. Values shown may be incomplete or stale.");
 });

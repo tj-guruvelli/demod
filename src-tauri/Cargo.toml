@@ -1,12 +1,17 @@
 [package]
-name = "typr"
+name = "demod"
 version = "0.1.0"
 description = "A dictation app powered by Whisper"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "typr_lib"
+# Renamed typr_lib -> demod_lib on 2026-07-20 alongside the product rename to
+# Demod, together with every `use demod_lib::...` import in src-tauri/src/*.rs.
+# An earlier pass deferred this and left the crate named after the old product,
+# which is exactly the "the repo still says Typr" problem the rename exists to
+# solve. No internal identifier should outlive the name it was derived from.
+name = "demod_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

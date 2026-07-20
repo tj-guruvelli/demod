@@ -1,4 +1,5 @@
 pub mod settings;
+pub mod applog;
 pub mod audio;
 pub mod transcribe_local;
 pub mod transcribe_groq;

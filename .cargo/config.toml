@@ -1,0 +1,20 @@
+# Build parallelism is capped deliberately. This is a STABILITY mitigation, not
+# a performance tuning knob - do not remove it without reading the note below.
+#
+# This machine (Legion Pro 7i, 32 logical cores, 2x32GB DDR5) bugchecked six
+# times in 14 days with KERNEL_SECURITY_CHECK_FAILURE 0x139 (arg1 = 0xA =
+# LIST_ENTRY corruption), plus a 0x50 and a 0xFC. The 2026-07-20 crash landed
+# during a release build of this crate.
+#
+# An unconstrained `cargo build` fans out to 32 concurrent rustc jobs, each
+# streaming object files through 15 resident AVG kernel filter drivers
+# (avgMonFlt, avgKbd, avgSnx, ...) alongside VirtualBox's VBoxNetLwf and
+# VMware's hcmon. Three third-party kernel filter stacks under a 32-way I/O
+# burst is a well-known way to trip list corruption in a buggy filter.
+#
+# Capping jobs shrinks that burst. It does NOT fix the underlying defect, which
+# is in kernel-mode code we do not own - a userspace build cannot corrupt kernel
+# memory on its own. The real fix is AVG exclusions for build trees (or removing
+# AVG) plus a clean memtest pass. See typr/tasks/lessons.md.
+[build]
+jobs = 12

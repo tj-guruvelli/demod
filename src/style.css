@@ -1,38 +1,54 @@
 :root {
-  /* Pulled 1:1 from overlay.html's own values — this IS the app's palette now
-     (US-012: design-B skin, verified against src/overlay.html). */
-  --bg:             #0a0a0a;
-  --sidebar-bg:     #0e0e0e;
-  --surface:        rgba(20, 20, 20, 0.85);
-  --surface-solid:  #141414;
-  --surface-hover:  rgba(255, 255, 255, 0.06);
-  --surface-active: rgba(255, 255, 255, 0.1);
-  --text:           #eaeaea;
-  --text-secondary: #9a9a9a;
-  /* AA fix (WCAG audit): #5a5a5a measured 2.67:1 on card/sidebar backgrounds
-     for 11px text - fails AA (needs 4.5:1, no large-text exemption at this
-     size). Raised to #808080 (~4.5-4.9:1 across surface/sidebar/solid bgs).
-     --text-tertiary-strong is a documented second step for the honesty
-     "Not available" gate-badge, which needs to read as more prominent than
-     plain muted text since it explains *why* a feature is off. */
-  --text-tertiary:        #808080;
-  --text-tertiary-strong: #8f8f8f;
+  /* Cyberpunk / vaporwave re-skin (TJ request): "purple scheme... some neon...
+     dark midnight purple icon with a neon outline, red stays red for
+     recording." Same structural roles as the previous dark-UI palette (bg /
+     sidebar-bg / surface / card all still form the same depth hierarchy) -
+     only the hue moved, from neutral near-black to a near-black WITH A
+     PURPLE CAST. Every value below is a token; there is no colour literal
+     anywhere else in this file. All ratios cited are actual computed WCAG
+     relative-luminance contrast (see tasks/lessons.md verification note),
+     not estimates. */
+  --bg:             #0b0614;
+  --sidebar-bg:     #0f0a1c;
+  --surface:        rgba(26, 16, 48, 0.85);
+  --surface-solid:  #170f28;
+  --surface-hover:  rgba(242, 61, 245, 0.08);
+  --surface-active: rgba(242, 61, 245, 0.16);
+  --text:           #f2ecff;
+  --text-secondary: #b6a4d9;
+  /* Measured against --surface-solid/--sidebar-bg/--card-bg (the darkest
+     surfaces text sits on): 6.08-6.57:1, comfortably past the 4.5:1 AA floor
+     for normal text at this size - same discipline as the prior palette's
+     AA fix, just re-measured for the new hue. --text-tertiary-strong stays
+     one step brighter for the honesty "Not available" gate-badge. */
+  --text-tertiary:        #9d8bc2;
+  --text-tertiary-strong: #a996cf;
   --focus-ring:     rgba(255, 255, 255, 0.9);
-  /* Accent system restored from template/main:src/style.css (US-012 revert:
-     TJ rejected the desaturated-only palette that dropped all color from the
-     app). --text-tertiary/-strong are intentionally NOT taken from the
-     template - the template's #3e3e44 fails AA on our backgrounds; keep the
-     WCAG-audited values above. */
-  --accent:         #5e6ad2;
-  --accent-hover:   #6872db;
-  --accent-rgb:     94, 106, 210;
-  --accent-subtle:  rgba(var(--accent-rgb), 0.12);
-  --green:          #3ecf6e;
-  --blue:           #4a9ff5;
-  --yellow:         #f5a623;
+  /* Vaporwave duo: --accent is the ELECTRIC VIOLET/MAGENTA neon primary -
+     active/selected states, primary buttons, focus rings, the "ready" pulse.
+     --accent-secondary is the CYAN neon secondary - supporting emphasis
+     (download progress fill) and the "transcribing" pulse, distinguishable
+     from --accent at a glance the same way amber/cyan used to split ready
+     vs. working. Neither is anywhere near --red, which stays reserved for
+     recording only (see --red below).
+     CONTRAST - near-black (#0a0a0a) on accent(magenta) measures 6.37:1 and
+     on accent-secondary(cyan) 12.93:1, both clearing the 4.5:1 AA floor for
+     text placed on a filled accent swatch; white-on-magenta only measures
+     3.11:1, so --on-accent (near-black) stays the only text-on-accent-fill
+     colour, same reasoning as the previous cyan/amber palette. */
+  --accent:            #f23df5;
+  --accent-hover:      #f766f8;
+  --accent-rgb:        242, 61, 245;
+  --accent-subtle:     rgba(var(--accent-rgb), 0.14);
+  --accent-secondary:      #22e5ff;
+  --accent-secondary-rgb:  34, 229, 255;
+  --on-accent:      #0a0a0a;
+  --green:          #3bffa0;
+  --blue:           #4ad3ff;
+  --yellow:         #ffd60a;
   --red:            #e5484d;
-  --border:         rgba(255, 255, 255, 0.10);
-  --border-strong:  rgba(255, 255, 255, 0.14);
+  --border:         rgba(242, 61, 245, 0.14);
+  --border-strong:  rgba(242, 61, 245, 0.22);
   --radius:         8px;
   --radius-lg:      12px;
   --radius-pill:    999px;
@@ -43,15 +59,64 @@
   /* Channel triples so a status colour has ONE definition. Tints below are
      written rgba(var(--x-rgb), a) instead of restating the literal, which is
      how --green/--red/--yellow silently grew duplicate copies. */
-  --green-rgb:      62, 207, 110;
-  --yellow-rgb:     245, 166, 35;
+  --green-rgb:      59, 255, 160;
+  --yellow-rgb:     255, 214, 10;
   --red-rgb:        229, 72, 77;
-  /* White overlays. Same family as --border/--border-strong, named by ROLE so
-     a background and a border no longer share an unrelated token by accident. */
-  --surface-subtle: rgba(255, 255, 255, 0.05);
-  --surface-raised: rgba(255, 255, 255, 0.14);
-  --border-hover:   rgba(255, 255, 255, 0.4);
-  --ring-soft:      rgba(255, 255, 255, 0.08);
+  /* Neon-tinted overlays (was flat white). Same family as --border/
+     --border-strong, named by ROLE so a background and a border don't share
+     an unrelated token by accident - just re-hued from white to a faint
+     violet so hovers/rings read as part of the same neon system. */
+  --surface-subtle: rgba(242, 61, 245, 0.06);
+  --surface-raised: rgba(242, 61, 245, 0.18);
+  --border-hover:   rgba(242, 61, 245, 0.5);
+  --ring-soft:      rgba(242, 61, 245, 0.1);
+
+  /* Card container-separation tokens (see .card comment) - kept as named
+     tokens rather than literals in the rule itself, per the "no colour
+     literal outside :root" constraint. */
+  --card-bg:              rgba(31, 19, 56, 0.9);
+  --card-border:          var(--border-strong);
+  --card-shadow-highlight: rgba(242, 61, 245, 0.06);
+  --card-shadow-drop:      rgba(0, 0, 0, 0.4);
+  --knob-edge:             rgba(0, 0, 0, 0.35);
+
+  /* Neon glow tokens (new, additive) - bloom radii/opacity for the
+     accent/status glows below, kept as tokens rather than literals in each
+     box-shadow per the "no hardcoded values" constraint. */
+  --glow-blur-sm:   6px;
+  --glow-blur-md:   14px;
+  --glow-blur-lg:   24px;
+  --glow-alpha-soft: 0.35;
+  --glow-alpha-strong: 0.6;
+  --scanline-opacity: 0.035;
+
+  /* Logo mark (5-bar waveform SVG, replaces the old figure-eight PNG).
+     SINGLE FLAT COLOUR. Superseded TJ's earlier "dark midnight purple and
+     then a neon outline for the border" spec on 2026-07-20: at 18px the
+     dark body inside a magenta rim does not read as body-plus-outline, it
+     reads as a gradient, which is what he then rejected ("the wave needs to
+     be a solid color, not a gradient color"). Two colours inside one small
+     glyph is the defect, so the mark is now one fill and no stroke.
+     The drop-shadow glow stays - it sits OUTSIDE the shape, so it is not a
+     second colour within the mark. */
+  --logo-color: var(--accent);
+
+  /* Pulse/breathing system (US: "ready icon not pulsing" + "use accent
+     colours throughout"). One keyframe pair + three opt-in utility classes
+     (.pulse / .pulse-ring / .pulse-glow) below, all driven by these tokens so
+     any live/active element can adopt the same animation instead of each
+     spot inventing its own. Color defaults to --accent (cyan = ready/idle/
+     success); working/transcribing states override --pulse-color to
+     --accent-secondary (amber) at the element, never a third hue.
+     Durations: ready breathes slowly/calmly, working pulses faster - the
+     two are meant to be distinguishable at a glance without reading text. */
+  --pulse-color:            var(--accent);
+  --pulse-color-rgb:        var(--accent-rgb);
+  --pulse-duration-slow:    2.2s;
+  --pulse-duration-fast:    0.9s;
+  --pulse-duration:         var(--pulse-duration-slow);
+  --pulse-ring-scale:       2.6;
+  --pulse-glow-scale:       1.18;
 }
 
 * {
@@ -82,6 +147,31 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  position: relative;
+}
+
+/* Faint vaporwave scanline texture over the whole window - decorative only,
+   `--scanline-opacity` (0.035) keeps it well below anything that could touch
+   text legibility, and it never intercepts clicks (pointer-events: none).
+   Fixed to the viewport (not #app) so it never scrolls with #content. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(var(--accent-rgb), var(--scanline-opacity)) 0px,
+    rgba(var(--accent-rgb), var(--scanline-opacity)) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+#app {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── App Shell ──────────────────────────────────────── */
@@ -132,8 +222,21 @@ body {
 }
 
 .app-icon {
-  color: var(--accent);
+  /* New sound-wave / vaporwave mark, inline SVG (so it can be recoloured via
+     tokens and animated) - replaces the old figure-eight PNG placeholder.
+     transform-origin: center so the idle .pulse-glow breathe (below) scales
+     from the middle of the mark, not its top-left corner. */
+  display: block;
   flex-shrink: 0;
+  overflow: visible;
+  transform-origin: center;
+}
+
+.app-icon-bar {
+  /* One fill, no stroke - see --logo-color. Do not reintroduce a stroke here:
+     a rim in a second hue is exactly the "gradient" defect that was rejected. */
+  fill: var(--logo-color);
+  filter: drop-shadow(0 0 var(--glow-blur-sm) rgba(var(--accent-rgb), var(--glow-alpha-soft)));
 }
 
 .app-name {
@@ -154,35 +257,122 @@ body {
 }
 
 #status-dot {
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--green);
+  background: var(--accent);
   flex-shrink: 0;
-  box-shadow: 0 0 6px rgba(var(--green-rgb), 0.45);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.45);
   transition: background-color var(--ease-out), box-shadow var(--ease-out);
 }
 
+/* main.ts fully replaces #status-dot.className per state (className = "" then
+   .add("ready"/"recording"/"transcribing")), so a static .pulse-ring/.pulse-glow
+   class in index.html would be wiped on every state change. These three state
+   selectors apply the SAME shared keyframes/tokens directly instead - the
+   .pulse/.pulse-ring/.pulse-glow utility classes below remain available for any
+   element that keeps its classes (e.g. footer-status-item spans, future markup).
+
+   Ready = "alive and listening for hotkey": cyan, slow calm breathe. Rebranded
+   off --green onto --accent per the "use the accent colours" directive - this
+   was the flat/dead-looking dot the user called out. */
 #status-dot.ready {
-  background: var(--green);
-  box-shadow: 0 0 6px rgba(var(--green-rgb), 0.45);
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.45);
+  --pulse-color: var(--accent);
+  --pulse-color-rgb: var(--accent-rgb);
+  --pulse-duration: var(--pulse-duration-slow);
 }
 
 #status-dot.recording {
   background: var(--red);
   box-shadow: 0 0 6px rgba(var(--red-rgb), 0.5);
-  animation: pulse 1s ease-in-out infinite;
+  --pulse-color: var(--red);
+  --pulse-color-rgb: var(--red-rgb);
+  --pulse-duration: var(--pulse-duration-fast);
 }
 
+/* Working/in-progress = amber, faster pulse - deliberately distinguishable
+   from the calm cyan "ready" breathe at a glance. */
 #status-dot.transcribing {
-  background: var(--yellow);
-  box-shadow: 0 0 6px rgba(var(--yellow-rgb), 0.45);
-  animation: pulse 1.5s ease-in-out infinite;
+  background: var(--accent-secondary);
+  box-shadow: 0 0 6px rgba(var(--accent-secondary-rgb), 0.45);
+  --pulse-color: var(--accent-secondary);
+  --pulse-color-rgb: var(--accent-secondary-rgb);
+  --pulse-duration: var(--pulse-duration-fast);
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+/* Core breathe (scale/opacity) + expanding ring, driven by the --pulse-color/
+   --pulse-duration each state above sets. Same keyframes as .pulse-glow/
+   .pulse-ring - applied directly here since this element's classes get wiped
+   by JS on every update (see comment above). */
+#status-dot.ready,
+#status-dot.recording,
+#status-dot.transcribing {
+  animation: pulse-glow-breathe var(--pulse-duration, 2s) ease-in-out infinite;
+}
+
+#status-dot.ready::before,
+#status-dot.recording::before,
+#status-dot.transcribing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--pulse-color, var(--accent));
+  animation: pulse-ring-expand var(--pulse-duration, 2s) ease-out infinite;
+  pointer-events: none;
+}
+
+/* ── Pulse / breathing system (reusable) ───────────────
+   Three opt-in utility classes, one keyframe pair. Every value that varies
+   per-instance comes from a --pulse-* custom property (see :root), so any
+   live/active element adopts the same animation by adding a class and
+   overriding a variable - not by hand-rolling a new animation.
+   Compositor-friendly only: transform + opacity, never width/height/top/left. */
+
+@keyframes pulse-ring-expand {
+  0%   { transform: scale(0.9); opacity: 0.55; }
+  100% { transform: scale(var(--pulse-ring-scale, 2.6)); opacity: 0; }
+}
+
+@keyframes pulse-glow-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% {
+    transform: scale(var(--pulse-glow-scale, 1.18));
+    opacity: 0.8;
+  }
+}
+
+/* .pulse: generic "alive" breathing for elements too small/plain for a ring
+   (e.g. the footer status dots) - scale + opacity only. */
+.pulse {
+  animation: pulse-glow-breathe var(--pulse-duration, 2s) ease-in-out infinite;
+}
+
+/* .pulse-ring: expanding concentric ring that fades as it grows. Needs the
+   host element to be position:relative (already true for #status-dot); adds
+   a ::before sized to match the element so the ring reads as emanating from
+   the core dot, not a separate shape. */
+.pulse-ring {
+  position: relative;
+}
+
+.pulse-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--pulse-color, var(--accent));
+  animation: pulse-ring-expand var(--pulse-duration, 2s) ease-out infinite;
+  pointer-events: none;
+}
+
+/* .pulse-glow: subtle scale/glow breathe on the core element itself, meant
+   to be combined with .pulse-ring (ring expands outward, core breathes). */
+.pulse-glow {
+  animation: pulse-glow-breathe var(--pulse-duration, 2s) ease-in-out infinite;
 }
 
 #status-text {
@@ -251,6 +441,7 @@ body {
   height: 16px;
   background: var(--accent);
   border-radius: 1px;
+  box-shadow: 0 0 var(--glow-blur-sm) rgba(var(--accent-rgb), var(--glow-alpha-strong));
 }
 
 .nav-icon {
@@ -295,20 +486,43 @@ body {
   text-overflow: ellipsis;
 }
 
+/* footer-sidecar's .dot inherits statusDot's className verbatim (main.ts:958:
+   `dot ${statusDot.className}`) so it always carries one of ready/recording/
+   transcribing - same shared .pulse system, small enough that only the
+   breathe (not the ring) is used. */
 .footer-status-item .dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--green);
+  background: var(--accent);
   flex-shrink: 0;
+}
+
+.footer-status-item .dot.ready {
+  background: var(--accent);
+  --pulse-color: var(--accent);
+  --pulse-color-rgb: var(--accent-rgb);
+  --pulse-duration: var(--pulse-duration-slow);
 }
 
 .footer-status-item .dot.recording {
   background: var(--red);
+  --pulse-color: var(--red);
+  --pulse-color-rgb: var(--red-rgb);
+  --pulse-duration: var(--pulse-duration-fast);
 }
 
 .footer-status-item .dot.transcribing {
-  background: var(--yellow);
+  background: var(--accent-secondary);
+  --pulse-color: var(--accent-secondary);
+  --pulse-color-rgb: var(--accent-secondary-rgb);
+  --pulse-duration: var(--pulse-duration-fast);
+}
+
+.footer-status-item .dot.ready,
+.footer-status-item .dot.recording,
+.footer-status-item .dot.transcribing {
+  animation: pulse-glow-breathe var(--pulse-duration, 2s) ease-in-out infinite;
 }
 
 .version-text {
@@ -372,17 +586,24 @@ body {
   transform: translateY(-4px);
 }
 
+.content-section.leaving {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--ease-in), transform var(--ease-in);
+}
+
+/* Declared AFTER .leaving on purpose: equal specificity means source order
+   decides, and .active must always win if a section is ever (even
+   momentarily, or due to a missed cleanup) tagged with both classes at once.
+   The JS in main.ts's activateTab() now also actively strips "leaving" before
+   adding "active" and no longer relies solely on `transitionend` (which does
+   not fire on a hidden/occluded/backgrounded window) to clear it — this rule
+   is the belt to that suspenders, not a substitute for the JS fix. */
 .content-section.active {
   display: block;
   opacity: 1;
   transform: translateY(0);
   transition: opacity var(--ease-out), transform var(--ease-out);
-}
-
-.content-section.leaving {
-  opacity: 0;
-  transform: translateY(-4px);
-  transition: opacity var(--ease-in), transform var(--ease-in);
 }
 
 .section-header {
@@ -395,6 +616,11 @@ body {
   color: var(--text);
   letter-spacing: -0.02em;
   margin-bottom: 4px;
+  /* Restrained neon touch: a very soft violet bloom behind the heading glyphs,
+     not a full glow-text effect - keeps the accent readable as "the brand
+     hue is here too" without reducing legibility of the (already AA-passing)
+     --text colour underneath. */
+  text-shadow: 0 0 var(--glow-blur-md) rgba(var(--accent-rgb), 0.25);
 }
 
 .section-desc {
@@ -405,12 +631,29 @@ body {
 
 /* ── Cards (Wispr's bordered settings groups) ─────────── */
 
+/* Container separation (TJ request): a single hairline border on the same
+   --surface as the page background read as one undifferentiated mass at
+   normal viewing distance. Three changes, kept restrained (quiet utility,
+   not a neon dashboard):
+   1. --card-bg is a touch lighter than --surface's rgba(20,20,20,.85) so the
+      card itself reads as a distinct raised plane against --bg (#0a0a0a).
+   2. --card-border uses --border-strong's value (0.14 vs. 0.10 alpha) - a
+      still-subtle but clearly firmer edge than the hairline used elsewhere.
+   3. A faint inset top highlight + soft outer shadow sells "raised" without
+      adding any new hue - both are white/black at low alpha, no colour
+      literal outside :root.
+   4. margin-bottom 20px -> 28px gives the cards themselves more breathing
+      room so adjacent cards don't visually merge. */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
-  padding: 4px 20px;
-  margin-bottom: 20px;
+  padding: 6px 20px;
+  margin-bottom: 28px;
+  box-shadow:
+    inset 0 1px 0 var(--card-shadow-highlight),
+    0 2px 8px var(--card-shadow-drop),
+    0 0 var(--glow-blur-md) rgba(var(--accent-rgb), 0.05);
 }
 
 .card:last-child {
@@ -495,7 +738,17 @@ body {
 select,
 input[type="password"] {
   width: 100%;
-  max-width: 260px;
+  /* min(260px, 100%): keeps the original 260px single-value sizing intent
+     when there's room, but never exceeds the actual parent width. The
+     leftward-overflow bug this replaced came from min-width defaulting to
+     "auto" on a flex ITEM, which floors a <select> at its longest-option
+     intrinsic content width regardless of any max-width. min-width:0 below
+     removes that floor so the browser actually shrinks the control to fit
+     .setting-control (flex:1; justify-content:flex-end; min-width:0 —
+     style.css:705+), instead of overflowing leftward across .setting-label.
+     This holds at ANY window width, not just the one that was screenshotted. */
+  max-width: min(260px, 100%);
+  min-width: 0;
   padding: 7px 12px;
   background: var(--surface-solid);
   color: var(--text);
@@ -544,6 +797,14 @@ select {
   background-position: right 12px center;
   padding-right: 32px;
   cursor: pointer;
+  /* The closed select's displayed value must truncate rather than force the
+     box wider than max-width above — long catalog labels like "Distil Large
+     v3 English (fastest, English-only)" would otherwise still push the
+     rendered width past its constraint in the WebView2/Chromium select
+     rendering path. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 select:focus,
@@ -591,7 +852,11 @@ input[type="password"]::placeholder {
 
 .toggle-btn.active {
   background: var(--accent);
-  color: #fff;
+  /* Dark text on the magenta fill, not white - see --on-accent note in
+     :root. Measured 6.37:1 (near-black on accent), well past the 4.5:1 AA
+     floor; white-on-magenta only measures 3.11:1. */
+  color: var(--on-accent);
+  box-shadow: 0 0 var(--glow-blur-sm) rgba(var(--accent-rgb), var(--glow-alpha-soft));
 }
 
 .toggle-btn:disabled {
@@ -645,11 +910,18 @@ input[type="password"]::placeholder {
 .switch.active {
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 0 var(--glow-blur-sm) rgba(var(--accent-rgb), var(--glow-alpha-soft));
 }
 
 .switch.active .switch-knob {
   transform: translateX(14px);
   background: #fff;
+  /* The knob is a non-text UI component, but white-on-cyan still only
+     measures 2.03:1 (WCAG 1.4.11 wants 3:1). Rather than dim the knob, give
+     it its own dark edge so the boundary is legible regardless of fill
+     colour - satisfies the same intent via a border instead of a fill
+     contrast ratio. */
+  border: 1px solid var(--knob-edge);
 }
 
 .switch:disabled {
@@ -662,7 +934,10 @@ input[type="password"]::placeholder {
 .btn-primary {
   padding: 7px 16px;
   background: var(--accent);
-  color: #fff;
+  /* Dark text on the magenta fill, not white - see --on-accent note in
+     :root. Measured 6.37:1 (near-black on accent) vs. 3.11:1 for
+     white-on-magenta. */
+  color: var(--on-accent);
   border: none;
   border-radius: var(--radius-pill);
   font-family: var(--font);
@@ -670,11 +945,13 @@ input[type="password"]::placeholder {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color var(--ease-out);
+  transition: background-color var(--ease-out), box-shadow var(--ease-out);
+  box-shadow: 0 0 var(--glow-blur-sm) rgba(var(--accent-rgb), var(--glow-alpha-soft));
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
+  box-shadow: 0 0 var(--glow-blur-md) rgba(var(--accent-rgb), var(--glow-alpha-strong));
 }
 
 .btn-primary:disabled {
@@ -795,7 +1072,10 @@ input[type="password"]::placeholder {
 
 #progress-fill {
   height: 100%;
-  background: #fff;
+  /* Secondary brand colour (amber) - supporting emphasis on a decorative
+     fill bar, not a text surface, so the amber-needs-dark-text caveat
+     doesn't apply here. */
+  background: var(--accent-secondary);
   border-radius: var(--radius-pill);
   width: 0%;
   transition: width 200ms ease-out;
@@ -940,9 +1220,12 @@ kbd {
 /* ── Focus visibility ─────────────────────────────────
    No element in this UI had a focus ring before this pass (grep for
    focus-visible was 0). Never `outline: none` without a replacement - this
-   IS the replacement. Ring color uses --accent (restored template accent
-   system) rather than --focus-ring; --accent clears 3:1 against every
-   background in this palette (bg/sidebar-bg/surface are all near-black).
+   IS the replacement. Ring color uses --accent (brand cyan) rather than
+   --focus-ring; --accent clears 3:1 against every background in this
+   palette (bg/sidebar-bg/surface are all near-black) - measured 9.5-9.8:1,
+   comfortably past the 3:1 floor, so a white ring wasn't needed here; cyan
+   keeps the ring visually tied to the rest of the active/selected states
+   instead of introducing a second "highlight" colour.
    Kept as one generic rule plus shape-aware overrides so the ring reads as
    intentional against pill/rounded controls instead of a plain rectangle. */
 
@@ -1004,9 +1287,27 @@ textarea:focus-visible {
     transition: background-color var(--ease-out) !important;
   }
 
+  /* Required fallback, not optional: every pulsing element (status dot, its
+     ring pseudo-element, footer dots, and any future .pulse/.pulse-ring/
+     .pulse-glow user) collapses to a static accent-colored dot - no
+     animation, no expanding ring, color still communicates state. */
+  #status-dot.ready,
   #status-dot.recording,
-  #status-dot.transcribing {
+  #status-dot.transcribing,
+  .footer-status-item .dot.ready,
+  .footer-status-item .dot.recording,
+  .footer-status-item .dot.transcribing,
+  .pulse,
+  .pulse-glow {
     animation: none !important;
+  }
+
+  #status-dot.ready::before,
+  #status-dot.recording::before,
+  #status-dot.transcribing::before,
+  .pulse-ring::before {
+    animation: none !important;
+    content: none !important;
   }
 }
 

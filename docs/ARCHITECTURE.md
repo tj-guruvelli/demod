@@ -13,7 +13,7 @@
 
 There are two crates, and the split is uneven:
 
-- `typr_lib` (`src-tauri/src/lib.rs`) exports settings, audio, transcribe_local,
+- `demod_lib` (`src-tauri/src/lib.rs`) exports settings, audio, transcribe_local,
   transcribe_groq, cleanup, paste, recorder, downloader.
 - `pill_hittest` and `sounds` are **not** in the lib. They are `mod` declarations inside
   the binary (`main.rs`).

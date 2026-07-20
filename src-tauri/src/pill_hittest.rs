@@ -15,6 +15,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
+use demod_lib::applog;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, MSLLHOOKSTRUCT, WH_MOUSE_LL,
@@ -76,7 +77,7 @@ pub fn install(app: &AppHandle, overlay: &WebviewWindow) {
     }
 
     if let Err(e) = overlay.set_ignore_cursor_events(true) {
-        eprintln!("[Typr] Failed to make overlay click-through: {}", e);
+        eprintln!("[Demod] Failed to make overlay click-through: {}", e);
     }
 
     update_pill_rect(overlay);
@@ -93,13 +94,16 @@ pub fn install(app: &AppHandle, overlay: &WebviewWindow) {
     match unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), None, 0) } {
         Ok(hook) => {
             HOOK.store(hook.0 as isize, Ordering::Release);
-            println!("[Typr] Pill hit-test mouse hook installed");
+            println!("[Demod] Pill hit-test mouse hook installed");
         }
         // Without the hook we must not enable cursor events (the whole
         // 440x160 host would swallow clicks), so the overlay stays
         // click-through: dictation still works, the pill just isn't
         // clickable this session.
-        Err(e) => eprintln!("[Typr] Failed to install mouse hook: {}", e),
+        Err(e) => {
+            eprintln!("[Demod] Failed to install mouse hook: {}", e);
+            applog::log_event_default("pill-hittest", &format!("mouse hook install failed: {}", e));
+        }
     }
 }
 
@@ -226,7 +230,7 @@ fn on_drag_end() {
 }
 
 /// US-009: a quick press-release on the pill (no drag) shows and focuses the
-/// main Typr settings window. Dispatched off the hook thread via
+/// main Demod settings window. Dispatched off the hook thread via
 /// run_on_main_thread, same pattern as on_drag_end/set_interactive.
 fn on_click() {
     let Some(app) = APP.get() else { return };
@@ -298,7 +302,8 @@ fn clamp_and_persist(app: &AppHandle) {
         let app_dir = state.app_dir.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = snapshot.save(&app_dir) {
-                eprintln!("[Typr] Failed to persist overlay position: {}", e);
+                eprintln!("[Demod] Failed to persist overlay position: {}", e);
+                applog::log_event(&app_dir, "overlay", &format!("position persist failed: {}", e));
             }
         });
     }

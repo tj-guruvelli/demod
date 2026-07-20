@@ -19,10 +19,15 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteOutcome {
     Pasted,
-    /// Refocus or the paste itself failed. The transcript is left on the
-    /// clipboard (with the exclusion formats already applied) for the user
-    /// to paste manually; the caller shows the paste-fallback overlay state.
+    /// Refocus or the synthetic Ctrl+V itself failed, but the transcript IS
+    /// sitting on the clipboard (the write succeeded). The caller shows the
+    /// paste-fallback overlay state ("copied - press Ctrl+V").
     Fallback,
+    /// The clipboard write itself failed - the transcript was not delivered
+    /// anywhere, not even the clipboard. Must never be reported the same way
+    /// as `Fallback`: telling the user "copied, press Ctrl+V" when nothing
+    /// was copied is a false success state.
+    Failed,
 }
 
 /// The window a transcript should be pasted into: the handle, plus the
@@ -167,8 +172,15 @@ pub fn paste_text(text: &str, target: Option<PasteTarget>) -> PasteOutcome {
         }
     };
     if !confirmed {
-        windows_impl::write_transcript_clipboard(text);
-        return PasteOutcome::Fallback;
+        // Focus wasn't confirmed, so this falls back to clipboard-only. The
+        // write can itself fail (clipboard held by another app, etc.) - that
+        // must be reported as Failed (nothing delivered), not Fallback
+        // (which claims the transcript IS on the clipboard for manual paste).
+        return if windows_impl::write_transcript_clipboard(text) {
+            PasteOutcome::Fallback
+        } else {
+            PasteOutcome::Failed
+        };
     }
 
     let saved = arboard::Clipboard::new()
@@ -176,7 +188,9 @@ pub fn paste_text(text: &str, target: Option<PasteTarget>) -> PasteOutcome {
         .and_then(|mut c| c.get_text().ok());
 
     if !windows_impl::write_transcript_clipboard(text) {
-        return PasteOutcome::Fallback;
+        // Nothing was placed anywhere - not a "copied, paste manually"
+        // fallback, a full delivery failure.
+        return PasteOutcome::Failed;
     }
     let seq_after_write = windows_impl::clipboard_sequence();
 
@@ -233,10 +247,12 @@ pub fn paste_text(text: &str, _target: Option<PasteTarget>) -> PasteOutcome {
         .and_then(|mut c| c.get_text().ok());
 
     let Ok(mut clipboard) = arboard::Clipboard::new() else {
-        return PasteOutcome::Fallback;
+        // Nothing was written anywhere - a delivery failure, not a
+        // "copied, paste manually" fallback.
+        return PasteOutcome::Failed;
     };
     if clipboard.set_text(text).is_err() {
-        return PasteOutcome::Fallback;
+        return PasteOutcome::Failed;
     }
 
     std::thread::sleep(std::time::Duration::from_millis(50));

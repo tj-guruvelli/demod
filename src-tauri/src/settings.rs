@@ -4,16 +4,27 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
+    // FIX 4: these six original fields had NO #[serde(default)], while every
+    // field added later did. serde_json::from_str fails the WHOLE object if
+    // any one field is missing/malformed, and Settings::load previously
+    // swallowed that with unwrap_or_default() - so a single bad/missing
+    // field (or a write truncated mid-flight) silently discarded everything,
+    // including the user's Groq API key. Defaults here mean a malformed or
+    // partial config degrades gracefully field-by-field instead of nuking
+    // the whole file.
+    #[serde(default = "default_microphone")]
     pub microphone: String,
+    #[serde(default = "default_engine")]
     pub engine: String,
-    #[serde(rename = "whisperModel")]
+    #[serde(rename = "whisperModel", default = "default_whisper_model")]
     pub whisper_model: String,
-    #[serde(rename = "groqApiKey")]
+    #[serde(rename = "groqApiKey", default)]
     pub groq_api_key: String,
     /// "auto" (default, US-005 tap/hold gesture model), or the legacy
     /// explicit overrides "toggle" / "push-to-talk".
-    #[serde(rename = "recordingMode")]
+    #[serde(rename = "recordingMode", default = "default_recording_mode")]
     pub recording_mode: String,
+    #[serde(default = "default_hotkey")]
     pub hotkey: String,
     /// Spoken language passed to whisper.cpp via `-l`. This was hardcoded to
     /// "en", which silently mis-transcribed anyone dictating in another
@@ -69,6 +80,26 @@ fn default_true() -> bool {
     true
 }
 
+fn default_microphone() -> String {
+    "default".to_string()
+}
+
+fn default_engine() -> String {
+    "local".to_string()
+}
+
+fn default_whisper_model() -> String {
+    "small".to_string()
+}
+
+fn default_recording_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_hotkey() -> String {
+    "CmdOrCtrl+Shift+Space".to_string()
+}
+
 fn default_language() -> String {
     "en".to_string()
 }
@@ -106,19 +137,43 @@ impl Settings {
         app_dir.join("config.json")
     }
 
+    /// Path a config that failed to parse is copied aside to before falling
+    /// back to defaults (FIX 4), so the user's Groq key and other settings
+    /// are recoverable from disk rather than silently destroyed.
+    pub fn corrupt_backup_path(app_dir: &PathBuf) -> PathBuf {
+        app_dir.join("config.json.corrupt")
+    }
+
     pub fn load(app_dir: &PathBuf) -> Self {
         let path = Self::config_path(app_dir);
         match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            Ok(contents) => match serde_json::from_str(&contents) {
+                Ok(settings) => settings,
+                Err(_) => {
+                    // Preserve the unparseable file rather than letting the
+                    // fallback-to-defaults silently discard it - the user's
+                    // API key and other settings may still be recoverable
+                    // from it by hand even though this build couldn't parse
+                    // it.
+                    let _ = fs::copy(&path, Self::corrupt_backup_path(app_dir));
+                    Self::default()
+                }
+            },
             Err(_) => Self::default(),
         }
     }
 
+    /// Write via a temp file + rename so a process interrupted mid-write
+    /// (crash, kill, power loss) can never leave `config.json` truncated -
+    /// the rename is atomic, so readers only ever see the old complete file
+    /// or the new complete file, never a partial one.
     pub fn save(&self, app_dir: &PathBuf) -> Result<(), String> {
         let path = Self::config_path(app_dir);
+        let tmp_path = app_dir.join("config.json.tmp");
         fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(&path, json).map_err(|e| e.to_string())
+        fs::write(&tmp_path, json).map_err(|e| e.to_string())?;
+        fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
     }
 }
 
@@ -251,6 +306,91 @@ mod tests {
 
         let settings = Settings::load(&dir);
         assert_eq!(settings, Settings::default());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // FIX 4 -----------------------------------------------------------
+
+    #[test]
+    fn test_load_corrupt_json_preserves_file_for_recovery() {
+        // The user's API key must be recoverable even when this build can't
+        // parse the file - falling back to defaults must not destroy it.
+        let dir = temp_dir().join("typr_test_corrupt_backup");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config.json"), r#"{"groqApiKey": "unterminated"#).unwrap();
+
+        let settings = Settings::load(&dir);
+        assert_eq!(settings, Settings::default());
+
+        let backup = fs::read_to_string(Settings::corrupt_backup_path(&dir)).unwrap();
+        assert!(backup.contains("unterminated"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_partial_json_with_only_new_fields_recovers_original_fields() {
+        // A config missing the six ORIGINAL fields entirely (not just the
+        // ones added later) must still parse, defaulting only what's
+        // missing, rather than the whole object failing to deserialize and
+        // falling back to Settings::default() (which would discard, e.g., a
+        // groqApiKey that WAS present under a typo'd key elsewhere in a real
+        // partial write).
+        let dir = temp_dir().join("typr_test_partial_original_fields");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config.json"),
+            r#"{"trailingSpace": true}"#,
+        )
+        .unwrap();
+
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.microphone, "default");
+        assert_eq!(settings.engine, "local");
+        assert_eq!(settings.whisper_model, "small");
+        assert_eq!(settings.groq_api_key, "");
+        assert_eq!(settings.recording_mode, "auto");
+        assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
+        assert_eq!(settings.trailing_space, true);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_is_atomic_no_tmp_file_left_behind() {
+        let dir = temp_dir().join("typr_test_atomic_save");
+        let _ = fs::remove_dir_all(&dir);
+
+        let settings = Settings::default();
+        settings.save(&dir).unwrap();
+
+        assert!(dir.join("config.json").exists());
+        assert!(!dir.join("config.json.tmp").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_overwrites_previous_config_completely() {
+        // Guards the atomic write path itself: after a second save, loading
+        // must reflect only the SECOND settings object, not a merge/partial
+        // leftover of the first.
+        let dir = temp_dir().join("typr_test_atomic_save_overwrite");
+        let _ = fs::remove_dir_all(&dir);
+
+        let mut first = Settings::default();
+        first.groq_api_key = "first-key".to_string();
+        first.save(&dir).unwrap();
+
+        let mut second = Settings::default();
+        second.groq_api_key = "second-key".to_string();
+        second.save(&dir).unwrap();
+
+        let loaded = Settings::load(&dir);
+        assert_eq!(loaded.groq_api_key, "second-key");
 
         let _ = fs::remove_dir_all(&dir);
     }

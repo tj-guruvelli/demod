@@ -62,15 +62,15 @@ pub async fn transcribe_local(
 
     match transcribe_via_server(audio_path).await {
         Ok(text) => {
-            println!("[Typr] Transcribed via warm whisper-server");
+            println!("[Demod] Transcribed via warm whisper-server");
             return Ok(text);
         }
         Err(e) => {
-            eprintln!("[Typr] whisper-server path failed ({}), falling back to CLI", e);
+            eprintln!("[Demod] whisper-server path failed ({}), falling back to CLI", e);
         }
     }
 
-    println!("[Typr] Running whisper.cpp sidecar with model {:?}", model_path);
+    println!("[Demod] Running whisper.cpp sidecar with model {:?}", model_path);
 
     let threads = whisper_threads().to_string();
     let mut cmd = app
@@ -109,7 +109,7 @@ pub async fn transcribe_local(
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     // Length only, never the content: this is the user's dictated speech and
     // may contain anything they said. See log_transcript in main.rs.
-    println!("[Typr] Whisper output: {} chars", text.chars().count());
+    println!("[Demod] Whisper output: {} chars", text.chars().count());
     Ok(text)
 }
 

@@ -13,6 +13,62 @@
       :root {
         --accent: #5e6ad2;
         --color-red: #e5484d;
+
+        /* Cyberpunk/vaporwave palette (TJ 2026-07-20 retheme). All colors and
+           durations used anywhere in this file - including the canvas JS -
+           must be declared here; nothing else may hardcode a literal. */
+        --color-neon-violet: #b14dff;
+        --color-neon-magenta: #ff2fd6;
+        --color-neon-cyan: #2ee6ff;
+        --color-neon-white: #f5f0ff;
+
+        /* Idle pill: dark midnight purple body, neon violet outline that
+           glows so it reads against any desktop background behind it. */
+        --pill-idle-bg: rgba(15, 7, 28, 0.94);
+        --pill-idle-bg-hover: rgba(21, 10, 38, 0.97);
+        --pill-idle-border: rgba(177, 77, 255, 0.9);
+        --pill-idle-glow-inner: rgba(177, 77, 255, 0.5);
+        --pill-idle-glow-outer: rgba(255, 47, 214, 0.35);
+        --pill-idle-glow-outer-peak: rgba(255, 47, 214, 0.6);
+        --pill-idle-pulse-duration: 2.6s;
+
+        /* Hover glow: DIMMER than idle, not brighter (TJ 2026-07-20). The
+           reflex is to brighten on hover, but this pill sits on top of other
+           apps - at hover distance the neon bloom was reading as glare. The
+           hover affordance is carried by the scale-up and the pulse instead,
+           so the glow can back off. Roughly half the idle alpha, tighter
+           radii. */
+        --pill-idle-glow-inner-hover: rgba(177, 77, 255, 0.26);
+        --pill-idle-glow-outer-hover: rgba(255, 47, 214, 0.16);
+        --pill-hover-pulse-duration: 0.9s;
+        --pill-hover-scale: 1.12;
+        --pill-hover-scale-peak: 1.19;
+
+        /* Recording pill: stays RED (the mic-is-live cue), just pushed
+           toward a crisper neon treatment - brighter edge, stronger glow. */
+        --pill-recording-bg: rgba(120, 18, 22, 0.92);
+        --pill-recording-bg-hover: rgba(140, 22, 26, 0.97);
+        --pill-recording-border: rgba(255, 72, 77, 0.95);
+        --pill-recording-glow: rgba(255, 72, 77, 0.65);
+        --pill-recording-glow-hover: rgba(229, 72, 77, 0.7);
+
+        /* Waveform stroke: single flat color (TJ 2026-07-20 - "why is it
+           gradient? It should just be one color for the wavelength"). Cyan
+           is the complement of the red recording-pill background, so it
+           separates cleanly (measured ~8.5:1 luminance-contrast against
+           --pill-recording-bg, well above the 4.5:1 target) - magenta/violet
+           against red was explicitly ruled out for reading poorly. One
+           token, so changing the wave color later is a one-line edit. */
+        --wave-stroke: var(--color-neon-cyan);
+        --wave-glow-color: rgba(46, 230, 255, 0.6);
+
+        /* App mark inside the idle pill. Mirrors --accent / --logo-color in
+           src/style.css (#f23df5) EXACTLY, so the floating pill, the settings
+           sidebar and the desktop icon are one mark in one colour. Declared
+           as a literal here only because overlay.html is a standalone document
+           that does not load style.css - if you change the accent there,
+           change it here too. */
+        --logo-color: #f23df5;
       }
 
       * { margin: 0; padding: 0; }
@@ -81,7 +137,7 @@
          hover so it reads as clickable (transform/opacity only). Hover
          emphasis (US-009): fully opaque + slight scale-up, still
          transform/opacity only, composing with the centering transform. */
-      /* Idle is the app's dock icon: the Typr mark, not a blank lozenge. Same
+      /* Idle is the app's dock icon: the Demod mark, not a blank lozenge. Same
          logo as the settings sidebar (index.html .app-icon) so the floating
          pill and the window read as one product. Kept small and dim so it
          stays unobtrusive on top of other apps, and it brightens on hover
@@ -93,18 +149,62 @@
         border-radius: 9px;
         position: absolute; /* .layer already sets this; kept explicit so the
                                 hotkey tooltip below can anchor off this box */
+        background: var(--pill-idle-bg);
+        border-color: var(--pill-idle-border);
+        box-shadow:
+          0 0 8px 1px var(--pill-idle-glow-inner),
+          0 0 16px 3px var(--pill-idle-glow-outer);
+        animation: idle-pulse var(--pill-idle-pulse-duration) ease-in-out infinite;
+      }
+      /* Border/glow "alive" pulse - CSS var-driven so the duration is a
+         single source of truth in :root. Disabled entirely under reduced
+         motion (see the media query near the bottom of this stylesheet). */
+      @keyframes idle-pulse {
+        0%, 100% {
+          box-shadow:
+            0 0 8px 1px var(--pill-idle-glow-inner),
+            0 0 16px 3px var(--pill-idle-glow-outer);
+        }
+        50% {
+          box-shadow:
+            0 0 11px 2px var(--pill-idle-glow-inner),
+            0 0 22px 5px var(--pill-idle-glow-outer-peak);
+        }
       }
       .state-idle .logo {
         width: 18px;
         height: 18px;
         opacity: 0.85;
-        /* logo is a raster PNG (real Typr mark), not a currentColor SVG
-           anymore - no color/fill styling to inherit here. */
+      }
+      /* Reverted to an inline SVG on 2026-07-20. It had been a base64 raster
+         PNG, which silently froze the OLD pre-rename mark into this file: the
+         desktop icon and the settings sidebar both updated and the floating
+         pill did not, because a data URI cannot follow a token. Inline SVG
+         driven by --logo-color makes that drift impossible. Do not convert
+         this back to a raster. Geometry is the same 5 bars as
+         index.html .app-icon and src-tauri/icons/generate_icons.py. */
+      .state-idle .logo rect {
+        fill: var(--logo-color);
+      }
+      /* Hover: expand AND keep pulsing (TJ 2026-07-20 - "it should pulse as
+         well as the expand animation"). The idle breathe animates box-shadow;
+         this one animates transform, so it cannot simply inherit - a transform
+         keyframe must restate the centering translate or the pill jumps to the
+         window corner mid-animation. Declaring `animation` here also replaces
+         idle-pulse, which is what lets the dimmer static box-shadow below
+         actually take effect instead of being overwritten by the breathe. */
+      @keyframes hover-pulse {
+        0%, 100% { transform: translate(-50%, -50%) scale(var(--pill-hover-scale)); }
+        50%      { transform: translate(-50%, -50%) scale(var(--pill-hover-scale-peak)); }
       }
       #mic[data-state="idle"] .state-idle:hover {
         opacity: 1;
-        background: rgba(20, 20, 20, 0.95);
-        transform: translate(-50%, -50%) scale(1.12);
+        background: var(--pill-idle-bg-hover);
+        transform: translate(-50%, -50%) scale(var(--pill-hover-scale));
+        box-shadow:
+          0 0 6px 1px var(--pill-idle-glow-inner-hover),
+          0 0 12px 2px var(--pill-idle-glow-outer-hover);
+        animation: hover-pulse var(--pill-hover-pulse-duration) ease-in-out infinite;
       }
       #mic[data-state="idle"] .state-idle:hover .logo {
         opacity: 1;
@@ -145,7 +245,8 @@
          .layer:hover darkening above (loaded later, so it wins by source
          order without needing !important). */
       #mic[data-state="listening"] .state-listening:hover {
-        background: rgba(72, 10, 12, 0.95);
+        background: var(--pill-recording-bg-hover);
+        box-shadow: 0 0 14px 2px var(--pill-recording-glow-hover);
       }
       #mic[data-state="listening"] .state-listening:hover,
       #mic[data-state="processing"] .state-processing:hover,
@@ -223,8 +324,9 @@
       .state-listening {
         width: 180px;
         height: 36px;
-        background: rgba(72, 10, 12, 0.85);
-        border-color: rgba(229, 72, 77, 0.45);
+        background: var(--pill-recording-bg);
+        border-color: var(--pill-recording-border);
+        box-shadow: 0 0 10px 1px var(--pill-recording-glow);
       }
       .state-listening canvas.waveform {
         width: 160px;
@@ -323,19 +425,37 @@
         .state-listening canvas.waveform {
           opacity: 0.9;
         }
+        .state-idle {
+          animation: none;
+          box-shadow:
+            0 0 8px 1px var(--pill-idle-glow-inner),
+            0 0 16px 3px var(--pill-idle-glow-outer);
+        }
+        /* The hover pulse is motion too. Keep the dimmer hover glow and the
+           static scale-up (both are affordances, not motion), drop only the
+           looping animation. */
+        #mic[data-state="idle"] .state-idle:hover {
+          animation: none;
+          transform: translate(-50%, -50%) scale(var(--pill-hover-scale));
+        }
       }
     </style>
   </head>
   <body>
     <div id="mic" data-state="idle">
       <div class="layer state-idle" data-tauri-drag-region>
-        <img
+        <svg
           class="logo"
-          alt=""
+          viewBox="0 0 24 24"
           aria-hidden="true"
           data-tauri-drag-region
-          src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAANjSURBVHgB7VZBbtpQEJ0xUdVFq5AbGAXSdBXIoklUKZATND1ByAnqngBzAsgJQk6Q9ASYLkKyCXTVqhDhniBEyiKtwNP5tgH728YGlu2TwPb3/Hnvz5+Zb4B/HQgrgpr5NF8mPxOPusNF5i8lwCZVFI3vTvhRlV6bgGjA2KqyGDPO18IC6OtuGYhq4Kw4zn0Vi3f6XAtYhLy1q/N/xT9IJv8briCVV5/3M2AdD+8+w6oCOOxlUPDcQ2zws46HnZZkxyKgwsRlD01kJBIJsJ0q2ITpfpOOxW41Zo7Gc2rTAYuOOCcM2U6BJEgpIuxpXnWDXZfjyAWYrM629ZkPrITaQQKICMzLaLcUQS5Bp1pwAJOEtWhDtkkUAUG+eds/3rzpnwfIRWIq+CB+XCE1aR6Tiai5SEFRnh8rINvulXI3/QESXSKQ6iNv5ku+qiDSqJU/8Tmw4NvsfaBnzBfA5DpvUpNcYgI0JRM1ZJo8Znru04kFZK97ml1OMxjK2DqTzK4CExG6EsOO52mYSMB2eyAayowcqd7fzx313m/5nNt7bNFHDn3XaUik4WH3i1+QMmtMiF0I6A0B7/k5h70s7vnauN/fOoUl4PaPgfs4xGJnQ7YJREDtDNITcmYfjmkcW/ORcPqHq4auwkzWAgPPo/wkLoR0Ze6/Nb3vRW6gQp8IYchCq/d7b0Idc3nWmbTsPpq8mGoiARyTIhu7QJ9z0QvESUhCIYn9w0u109kwC4Vpctmlabdg8hxK3LojGtncMkTFn7XcB3Zkm9Sf1x/8A3byesk1bt0XEIG5AohQ9Qmw6Jdsg2gfx2HgDxMoMfkZzEFAgJcEwfKd7b2DrQYPOgcMJyjf6/13uZakuusQdzLyUR2GQBmKKlj7PXqYkIxePmW8e+zYdOyOJo/7fHAy9w9yBsQgEAGzkBFODVcei3lVCdoUhmHkufbPcvamd7n2PB7YyZwA4TngLxkte/1DgxiIc4PQ/mI6JrSGI2t0AQkQ+T2Qve1VWIg+04SNMaWq5kHGlIhL7plRmtry59j9XnY1Aa6IGjP7V4+i7zunIpdlnoWpkke9v5dL3D1jv4jkSESCE5YU6zSqMy4tQGC7/V0dY8oOc2DFImERjNGLp7OoqlhZgBeiBJHW18U94ePjMqT/4cVfZNp1ptgvGtYAAAAASUVORK5CYII="
-        />
+        >
+          <rect x="0.5"  y="9"   width="3" height="6"  rx="1.4"/>
+          <rect x="5.5"  y="5"   width="3" height="14" rx="1.4"/>
+          <rect x="10.5" y="1.5" width="3" height="21" rx="1.4"/>
+          <rect x="15.5" y="5"   width="3" height="14" rx="1.4"/>
+          <rect x="20.5" y="9"   width="3" height="6"  rx="1.4"/>
+        </svg>
         <div class="idle-hotkey" id="idle-hotkey"></div>
       </div>
       <div class="layer state-listening" data-tauri-drag-region>
@@ -378,17 +498,41 @@
       // MutationObserver on the attribute - event-driven, no polling, and it
       // is naturally paused whenever the window is hidden/occluded since
       // requestAnimationFrame itself pauses then - the loop never assumes a
-      // frame actually painted). Drawn as a flowing red waveform on a canvas:
-      // a canvas redraw is a pixel operation, never a layout-affecting CSS
+      // frame actually painted). Drawn as a flowing waveform on a canvas: a
+      // canvas redraw is a pixel operation, never a layout-affecting CSS
       // property, so it is as safe as the old transform: scaleY approach.
+      //
+      // Third attempt (see tasks/lessons.md history): the first two builds
+      // failed because (1) a modulated-in-place sine never travelled and
+      // (2) a coarse 64-sample ring buffer snapped to a literal flat line at
+      // silence with near-invisible amplitude. This build draws a dense,
+      // continuously-travelling multi-sine surface spanning the FULL pill
+      // width at all times - there is no "silence" visual state, only a
+      // lower-amplitude/slower idle wave. Phase is derived directly from
+      // performance.now() (never accumulated frame-to-frame), so the wave is
+      // correct immediately after any rAF pause caused by window occlusion.
       (() => {
-        const FLOOR = 0.06;        // honest-flatline amplitude (0..1)
-        const SILENCE_RMS = 0.01;  // below this counts as silence
-        const SILENCE_MS = 600;    // flatline after this much continuous silence
-        const GAIN = 9;            // maps typical speech RMS (~0.02-0.3) to 0..1
-        const EASE = 0.35;         // per-frame smoothing toward target
-        const SCROLL_SPEED = 0.0035; // phase units per ms - the "flow" rate
-        const RED = '#e5484d';
+        const IDLE_AMP = 0.22;      // idle amplitude floor as a fraction of max - never drops below this, so it never reads as flat
+        const PEAK_FLOOR = 0.02;    // adaptive-peak floor - keeps quiet-room mic noise from being amplified into fake motion
+        const PEAK_RELEASE_MS = 450; // TJ 2026-07-20: "it doesn't return back to normal" - was 3000ms (seconds-scale drift after
+                                     // speech stopped); tightened to settle to idle in ~400-600ms and then hold steady
+        const LEVEL_CURVE = 0.42;   // exponent <1 = aggressive early rise, so quiet speech still moves the wave a lot
+        const CYCLES_IDLE = 3.4;    // wavelengths visible across the pill at rest (spec: at least 3-4)
+        const CYCLES_MAX = 14;      // TJ 2026-07-20: "pitch needs to change a lot more, a lot higher" - was 6.5 (< 2x range,
+                                     // read as barely changing); now a 4x range so loud speech is unmistakably tighter
+        const PX_PER_SAMPLE = 2;    // ~1 point per 2 device pixels, per spec
+        const TRAVEL_SPEED = 1.35;  // rad/s base travel speed of the dominant component
+        const GLOW_BLUR = 8;        // strengthened neon glow (was 6) for the retheme
+
+        // Three layered sine components at different spatial-frequency
+        // multipliers, phase speeds (some negative = opposite drift), and
+        // weights, summed and normalised - reads as organic, not a pure tone.
+        const LAYERS = [
+          { freqMul: 1.0, speed: 1.0, weight: 0.5, phase: 0 },
+          { freqMul: 1.7, speed: -0.65, weight: 0.3, phase: 1.9 },
+          { freqMul: 2.6, speed: 1.4, weight: 0.2, phase: 4.1 },
+        ];
+        const LAYER_WEIGHT_SUM = LAYERS.reduce((s, l) => s + l.weight, 0);
 
         const mic = document.getElementById('mic');
         const canvas = document.querySelector('.state-listening canvas.waveform');
@@ -396,52 +540,145 @@
         const reduceMotion = window.matchMedia &&
           window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        let level = 0;       // latest RMS from Rust
-        let lastLoudAt = 0;  // performance.now() of last above-threshold level
-        let amplitude = FLOOR; // eased 0..1 amplitude
-        let phase = 0;       // scroll offset, radians
+        // CSS-pixel canvas size (fixed layout size); device-pixel backing
+        // store is sized from devicePixelRatio so the stroke stays crisp on
+        // hi-DPI displays instead of blurring the old statically-baked 2x
+        // canvas attributes.
+        const CSS_W = 160, CSS_H = 28;
+        let dpr = 1;
+        const fitCanvasToDPR = () => {
+          if (!canvas || !ctx) return;
+          dpr = window.devicePixelRatio || 1;
+          const targetW = Math.round(CSS_W * dpr);
+          const targetH = Math.round(CSS_H * dpr);
+          if (canvas.width !== targetW) canvas.width = targetW;
+          if (canvas.height !== targetH) canvas.height = targetH;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS-pixel coordinates from here on
+        };
+
+        let level = 0;             // latest RMS from Rust (untouched - display only reads this, never mutates it)
+        let peakEnv = PEAK_FLOOR;  // slow-moving adaptive peak (instant attack, seconds-scale release)
         let rafId = 0;
         let lastNow = 0;
 
-        const draw = () => {
-          if (!ctx) return;
-          const w = canvas.width, h = canvas.height, mid = h / 2;
-          ctx.clearRect(0, 0, w, h);
-          ctx.strokeStyle = RED;
-          ctx.lineWidth = 3;
+        // Single flat stroke color (TJ 2026-07-20: "why is it gradient? It
+        // should just be one color for the wavelength"). Never a literal
+        // here - read from the :root custom property (--wave-stroke) so the
+        // single source of truth for every color in this file stays :root,
+        // per project rule.
+        const rootStyle = getComputedStyle(document.documentElement);
+        const cssVar = (name, fallback) => {
+          const v = rootStyle.getPropertyValue(name).trim();
+          return v || fallback;
+        };
+        const strokeColor = cssVar('--wave-stroke', '#2ee6ff');
+        const glowColor = cssVar('--wave-glow-color', 'rgba(46, 230, 255, 0.6)');
+
+        const waveY = (x, now, amp, cycles) => {
+          const k = (cycles * 2 * Math.PI) / CSS_W;
+          const t = now / 1000;
+          let sum = 0;
+          for (const layer of LAYERS) {
+            sum += layer.weight * Math.sin(x * k * layer.freqMul + layer.phase + t * TRAVEL_SPEED * layer.speed);
+          }
+          return (sum / LAYER_WEIGHT_SUM) * amp;
+        };
+
+        // Turns a raw 0..1-ish RMS level into the normalized 0..1 "curved"
+        // drive value used for both amplitude and wavelength - a single
+        // adaptive-peak + non-linear-curve computation shared by the live
+        // rAF loop and the manual/test-harness path, so both agree.
+        const levelToCurve = (lvl) => {
+          const absLevel = Math.max(lvl, 0);
+          if (absLevel > peakEnv) {
+            peakEnv = absLevel;
+          } else {
+            peakEnv = Math.max(peakEnv, PEAK_FLOOR);
+          }
+          const norm = Math.min(1, absLevel / Math.max(peakEnv, PEAK_FLOOR));
+          return Math.pow(norm, LEVEL_CURVE);
+        };
+
+        // Exposed so a standalone test harness can call it directly with an
+        // explicit timestamp + level, bypassing rAF entirely (rAF is paused
+        // whenever the host window is occluded/backgrounded, so relying on
+        // it for verification screenshots is unreliable).
+        const drawFrame = (now, lvl) => {
+          if (!ctx || !canvas) return;
+          fitCanvasToDPR();
+          const mid = CSS_H / 2;
+          const ampScale = mid * 0.86;
+
+          const curved = levelToCurve(lvl);
+          const amp = IDLE_AMP + (1 - IDLE_AMP) * curved;
+          const cycles = CYCLES_IDLE + (CYCLES_MAX - CYCLES_IDLE) * curved;
+
+          ctx.clearRect(0, 0, CSS_W, CSS_H);
+          ctx.lineWidth = 2.4;
           ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          // NO shadowBlur. The stroke was already a single flat colour, but a
+          // blurred glow around it fades from opaque line to transparent edge,
+          // which is indistinguishable from a gradient at 30px tall - TJ read
+          // it as one twice ("why is it gradient?", then "still a gradient
+          // color and not a solid deep color"). A solid line means solid: one
+          // colour, hard edges, no halo. Do not reintroduce shadowBlur here.
+          ctx.strokeStyle = strokeColor;
           ctx.beginPath();
-          const points = 48;
-          for (let i = 0; i <= points; i++) {
-            const x = (i / points) * w;
-            // Two summed sine components (different frequency/phase speed)
-            // read as a flowing water surface rather than a single ripple.
-            const t = (i / points) * Math.PI * 4;
-            const y = mid
-              - Math.sin(t + phase) * amplitude * (mid * 0.75)
-              - Math.sin(t * 1.7 - phase * 1.3) * amplitude * (mid * 0.25);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+
+          if (reduceMotion) {
+            // Static/minimal-motion fallback: draw one still frame at the
+            // idle wavelength/amplitude, no travel - level still nudges the
+            // amplitude a little so it is not completely inert.
+            const points = Math.max(24, Math.ceil(CSS_W / (PX_PER_SAMPLE * 2)));
+            const staticAmp = IDLE_AMP + (1 - IDLE_AMP) * curved * 0.4;
+            for (let i = 0; i <= points; i++) {
+              const x = (i / points) * CSS_W;
+              const y = mid - waveY(x, 0, staticAmp * ampScale, CYCLES_IDLE);
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+          } else {
+            const points = Math.max(48, Math.ceil(CSS_W / PX_PER_SAMPLE));
+            for (let i = 0; i <= points; i++) {
+              const x = (i / points) * CSS_W;
+              const y = mid - waveY(x, now, amp * ampScale, cycles);
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
           }
           ctx.stroke();
+          ctx.shadowBlur = 0;
         };
 
         const frame = (now) => {
           const dt = lastNow ? now - lastNow : 16;
           lastNow = now;
-          const silent = now - lastLoudAt > SILENCE_MS;
-          const norm = silent ? 0 : Math.min(1, Math.pow(level * GAIN, 0.7));
-          const target = Math.max(FLOOR, norm);
-          amplitude += (target - amplitude) * EASE;
-          if (!reduceMotion) phase += dt * SCROLL_SPEED;
-          draw();
+          // Frame-rate-independent exponential smoothing of the peak
+          // envelope's release, driven by wall-clock dt rather than a fixed
+          // per-frame step, so it behaves the same whether rAF just resumed
+          // after a long pause or is running at 60fps. The actual draw call
+          // below re-derives amp/cycles from the *current* level each frame
+          // (levelToCurve), which is itself gated by the slow-moving peak
+          // envelope - that IS the smoothing; a separate smoothLevel lerp on
+          // top would just double-smooth, so drawFrame is the single source
+          // of truth here.
+          const absLevel = Math.max(level, 0);
+          if (absLevel > peakEnv) {
+            peakEnv = absLevel;
+          } else {
+            const releaseAlpha = 1 - Math.exp(-dt / PEAK_RELEASE_MS);
+            peakEnv += (Math.max(absLevel, PEAK_FLOOR) - peakEnv) * releaseAlpha;
+          }
+          peakEnv = Math.max(peakEnv, PEAK_FLOOR);
+
+          drawFrame(now, level);
           rafId = requestAnimationFrame(frame);
         };
 
         const startLoop = () => {
           if (rafId) return;
           level = 0;
-          lastLoudAt = performance.now();
           lastNow = 0;
+          peakEnv = PEAK_FLOOR;
           rafId = requestAnimationFrame(frame);
         };
 
@@ -449,8 +686,7 @@
           if (!rafId) return;
           cancelAnimationFrame(rafId);
           rafId = 0;
-          amplitude = FLOOR;
-          phase = 0;
+          peakEnv = PEAK_FLOOR;
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
 
@@ -466,9 +702,14 @@
         if (tauri && tauri.webviewWindow) {
           tauri.webviewWindow.getCurrentWebviewWindow().listen('audio-level', (e) => {
             level = e.payload;
-            if (level >= SILENCE_RMS) lastLoudAt = performance.now();
           });
         }
+
+        // Expose the pure draw function for the standalone visual-proof test
+        // harness (never used by the app itself) to call directly with
+        // explicit timestamps/levels, since rAF pauses when this window is
+        // occluded and cannot be trusted to paint on demand.
+        window.__typrWaveformDrawFrame = drawFrame;
       })();
 
       // Status dot (US-008): Rust emits 'status-dot' with payload
@@ -578,7 +819,7 @@
               // all look identical: the menu item simply did nothing. Report
               // the reason instead.
               tauri.core.invoke(cmd).catch((err) => {
-                console.error('[Typr] menu action failed:', cmd, err);
+                console.error('[Demod] menu action failed:', cmd, err);
                 showNotice(typeof err === 'string' ? err : 'That action could not run');
               });
             } else {
@@ -634,7 +875,7 @@
             tooltip.textContent = lastGoodText;
             tooltip.classList.add('has-hotkey');
           } catch (err) {
-            console.error('[Typr] get_settings failed:', err);
+            console.error('[Demod] get_settings failed:', err);
             clear();
           } finally {
             resolved = true;

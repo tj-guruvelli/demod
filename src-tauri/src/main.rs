@@ -3,18 +3,19 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
-use typr_lib::audio;
-use typr_lib::downloader;
-use typr_lib::paste::{self, PasteOutcome};
-use typr_lib::recorder::{Recorder, RecordingState};
-use typr_lib::settings::Settings;
-use typr_lib::transcribe_groq::{self, GroqKeyCheck};
-use typr_lib::transcribe_local;
+use demod_lib::applog;
+use demod_lib::audio;
+use demod_lib::downloader;
+use demod_lib::paste::{self, PasteOutcome};
+use demod_lib::recorder::{Recorder, RecordingState, MIC_START_FAILURE_MESSAGE};
+use demod_lib::settings::Settings;
+use demod_lib::transcribe_groq::{self, GroqKeyCheck};
+use demod_lib::transcribe_local;
 
 mod autostart;
 mod pill_hittest;
@@ -62,14 +63,14 @@ fn respawn_whisper_server(app: &tauri::AppHandle, state: &AppState) {
 
     let settings = state.settings.lock().unwrap().clone();
     if settings.engine != "local" {
-        println!("[Typr] Engine is cloud — whisper-server not started");
+        println!("[Demod] Engine is cloud — whisper-server not started");
         return;
     }
     let model_path = state
         .app_dir
         .join(transcribe_local::model_filename(&settings.whisper_model));
     if !model_path.exists() {
-        println!("[Typr] Model not downloaded — whisper-server not started");
+        println!("[Demod] Model not downloaded — whisper-server not started");
         return;
     }
 
@@ -91,13 +92,19 @@ fn respawn_whisper_server(app: &tauri::AppHandle, state: &AppState) {
                 .spawn()
             {
                 Ok((_rx, child)) => {
-                    println!("[Typr] whisper-server started (pid {})", child.pid());
+                    println!("[Demod] whisper-server started (pid {})", child.pid());
                     *state.whisper_server.lock().unwrap() = Some(child);
                 }
-                Err(e) => eprintln!("[Typr] Failed to spawn whisper-server: {}", e),
+                Err(e) => {
+                    eprintln!("[Demod] Failed to spawn whisper-server: {}", e);
+                    applog::log_event(&state.app_dir, "whisper-server", &format!("failed to spawn: {}", e));
+                }
             }
         }
-        Err(e) => eprintln!("[Typr] whisper-server sidecar not found: {}", e),
+        Err(e) => {
+            eprintln!("[Demod] whisper-server sidecar not found: {}", e);
+            applog::log_event(&state.app_dir, "whisper-server", &format!("sidecar not found: {}", e));
+        }
     }
 }
 
@@ -143,7 +150,7 @@ fn save_settings(
                 overlay.hide()
             };
             if let Err(e) = result {
-                eprintln!("[Typr] Failed to toggle overlay visibility: {}", e);
+                eprintln!("[Demod] Failed to toggle overlay visibility: {}", e);
             }
         }
     }
@@ -249,12 +256,12 @@ async fn do_toggle_recording(
 /// This app transcribes whatever the user says, which routinely includes
 /// things that must never reach a log: passwords read aloud, private
 /// messages, client data. The release binary is GUI-subsystem, but Windows
-/// still honours inherited stdout/stderr handles, so anything launching Typr
+/// still honours inherited stdout/stderr handles, so anything launching Demod
 /// with redirection (a log wrapper, a scheduler, a monitoring agent) would
 /// capture every transcript verbatim and durably. Length is enough to confirm
 /// the pipeline worked; the content is the user's, not ours.
 fn log_transcript(result: &str) {
-    println!("[Typr] Transcription complete: {} chars", result.chars().count());
+    println!("[Demod] Transcription complete: {} chars", result.chars().count());
 }
 
 /// Same one-line eval pattern recorder.rs uses for the pill's data-state
@@ -288,7 +295,7 @@ fn menu_hide_hour(app: tauri::AppHandle) -> Result<(), String> {
         if overlay_visible {
             if let Some(overlay) = handle.get_webview_window("overlay") {
                 if let Err(e) = overlay.show() {
-                    eprintln!("[Typr] Failed to re-show overlay after hide-for-1-hour: {}", e);
+                    eprintln!("[Demod] Failed to re-show overlay after hide-for-1-hour: {}", e);
                 }
             }
         }
@@ -317,6 +324,9 @@ fn menu_paste_last(app: tauri::AppHandle, state: State<AppState>) -> Result<(), 
             set_overlay_pill_state(&app, "paste-fallback");
             Ok(())
         }
+        // Nothing was delivered anywhere, not even the clipboard - tell the
+        // caller, don't show a success/fallback pill for it.
+        PasteOutcome::Failed => Err("Could not copy the transcript to the clipboard.".to_string()),
     }
 }
 
@@ -401,6 +411,41 @@ fn validate_hotkey(hotkey: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Attempt to start capture and, ONLY once that has actually succeeded,
+/// commit the visible/audible "recording" state (overlay pill + start ping,
+/// plus arming the US-005 "auto" mode tap/hold gesture when
+/// `arm_auto_gesture_at` is `Some`). On failure, nothing is shown or played -
+/// the recorder is rolled back through `fail_to_ready`, which flips back to
+/// Ready and tells the user the real problem (mic unavailable/in use) via the
+/// overlay notice, rather than leaving them looking at a "listening" pill and
+/// a ping for a recording that never started (US-defect-1).
+fn start_recording_and_commit_ui(
+    handle: &tauri::AppHandle,
+    state: &AppState,
+    interaction_sounds: bool,
+    arm_auto_gesture_at: Option<Instant>,
+) {
+    let mic = state.settings.lock().unwrap().microphone.clone();
+    match state.recorder.start_recording(handle, &mic) {
+        Ok(_) => {
+            println!("[Demod] Recording started");
+            if let Some(overlay) = handle.get_webview_window("overlay") {
+                let _ = overlay
+                    .eval("document.getElementById('mic').dataset.state = 'listening';");
+            }
+            sounds::play_start(interaction_sounds);
+            if let Some(pressed_at) = arm_auto_gesture_at {
+                *state.hotkey_gesture.lock().unwrap() = HotkeyGesture::Pressed(pressed_at);
+            }
+        }
+        Err(e) => {
+            eprintln!("[Demod] Start recording error: {}", e);
+            applog::log_event(&state.app_dir, "mic", &format!("start failed: {}", e));
+            state.recorder.fail_to_ready(handle, MIC_START_FAILURE_MESSAGE);
+        }
+    }
+}
+
 /// Builds the global-shortcut dispatch handler for the hotkey, so it can be
 /// registered again with a different accelerator when the user rebinds it
 /// (see `set_hotkey`) without duplicating the tap/hold/auto gesture state
@@ -413,14 +458,14 @@ fn make_hotkey_handler(
        + Sync
        + 'static {
     move |_app, shortcut, event| {
-        println!("[Typr] Hotkey event: {:?} state={:?}", shortcut, event.state);
+        println!("[Demod] Hotkey event: {:?} state={:?}", shortcut, event.state);
         let handle = handle.clone();
         let state = handle.state::<AppState>();
         let (mode, interaction_sounds) = {
             let s = state.settings.lock().unwrap();
             (s.recording_mode.clone(), s.interaction_sounds)
         };
-        println!("[Typr] Recording mode: {}", mode);
+        println!("[Demod] Recording mode: {}", mode);
 
         match event.state {
             ShortcutState::Pressed => {
@@ -458,56 +503,58 @@ fn make_hotkey_handler(
                                 &state.app_dir,
                             ).await {
                                 Ok(result) => log_transcript(&result),
-                                Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                                Err(e) => {
+                                    eprintln!("[Demod] Transcription error: {}", e);
+                                    applog::log_event(&state.app_dir, "transcribe", &format!("failed: {}", e));
+                                }
                             }
                         }
                     });
                 } else {
+                    // US-defect-1: the overlay pill + start ping used to be
+                    // shown/played HERE, synchronously, before
+                    // start_recording had even been attempted - so a mic
+                    // that's unavailable or in use by another app still
+                    // showed "listening" and pinged, and the user believed
+                    // capture was running when nothing was. Both signals now
+                    // only fire once start_recording has actually returned
+                    // Ok, inside the spawned task below; a failure instead
+                    // rolls back through the same `fail_to_ready` recovery
+                    // path used elsewhere, naming the real problem.
                     let will_start = matches!(mode.as_str(), "toggle" | "push-to-talk" | "auto")
                         && current == RecordingState::Ready;
-                    if will_start {
-                        if let Some(overlay) = handle.get_webview_window("overlay") {
-                            let _ = overlay.eval(
-                                "document.getElementById('mic').dataset.state = 'listening';",
-                            );
-                        }
-                        sounds::play_start(interaction_sounds);
-                        if mode == "auto" {
-                            // US-005 gestures 1/2: keydown always starts
-                            // capture; record when, so the matching
-                            // Released can classify tap (<300ms) vs hold.
-                            *state.hotkey_gesture.lock().unwrap() =
-                                HotkeyGesture::Pressed(Instant::now());
-                        }
-                    }
 
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
                         match mode.as_str() {
                             "toggle" => {
-                                println!("[Typr] Toggle mode: calling do_toggle_recording");
-                                if state.recorder.get_state() == RecordingState::Recording {
+                                println!("[Demod] Toggle mode: calling do_toggle_recording");
+                                let current = state.recorder.get_state();
+                                if current == RecordingState::Recording {
                                     sounds::play_stop(interaction_sounds);
-                                }
-                                match do_toggle_recording(&handle, state.inner()).await {
-                                    Ok(result) => log_transcript(&result),
-                                    Err(e) => eprintln!("[Typr] Toggle error: {}", e),
+                                    match do_toggle_recording(&handle, state.inner()).await {
+                                        Ok(result) => log_transcript(&result),
+                                        Err(e) => {
+                                            eprintln!("[Demod] Toggle error: {}", e);
+                                            applog::log_event(&state.app_dir, "transcribe", &format!("toggle failed: {}", e));
+                                        }
+                                    }
+                                } else if will_start {
+                                    start_recording_and_commit_ui(&handle, state.inner(), interaction_sounds, None);
                                 }
                             }
                             "push-to-talk" | "auto" => {
                                 let current = state.recorder.get_state();
-                                println!("[Typr] {} mode, current state: {:?}", mode, current);
+                                println!("[Demod] {} mode, current state: {:?}", mode, current);
                                 if current == RecordingState::Ready {
-                                    let mic = state
-                                        .settings
-                                        .lock()
-                                        .unwrap()
-                                        .microphone
-                                        .clone();
-                                    match state.recorder.start_recording(&handle, &mic) {
-                                        Ok(_) => println!("[Typr] Recording started"),
-                                        Err(e) => eprintln!("[Typr] Start recording error: {}", e),
-                                    }
+                                    let gesture_on_start =
+                                        if mode == "auto" { Some(Instant::now()) } else { None };
+                                    start_recording_and_commit_ui(
+                                        &handle,
+                                        state.inner(),
+                                        interaction_sounds,
+                                        gesture_on_start,
+                                    );
                                 }
                             }
                             _ => {}
@@ -532,7 +579,10 @@ fn make_hotkey_handler(
                                 &state.app_dir,
                             ).await {
                                 Ok(result) => log_transcript(&result),
-                                Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                                Err(e) => {
+                                    eprintln!("[Demod] Transcription error: {}", e);
+                                    applog::log_event(&state.app_dir, "transcribe", &format!("failed: {}", e));
+                                }
                             }
                         }
                     });
@@ -570,7 +620,10 @@ fn make_hotkey_handler(
                                     &state.app_dir,
                                 ).await {
                                     Ok(result) => log_transcript(&result),
-                                    Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                                    Err(e) => {
+                                        eprintln!("[Demod] Transcription error: {}", e);
+                                        applog::log_event(&state.app_dir, "transcribe", &format!("failed: {}", e));
+                                    }
                                 }
                             }
                         });
@@ -603,8 +656,18 @@ fn set_hotkey(app: tauri::AppHandle, state: State<AppState>, hotkey: String) -> 
         return Ok(());
     }
 
+    // US-defect-4: if the user is still physically holding the OLD
+    // combination right now, its Released event can never arrive once we
+    // unregister it below - the accelerator that would have delivered it is
+    // gone. Without this, a recording started by the old hotkey is
+    // permanently stranded in Recording (start_recording only accepts
+    // Ready), and the app needs a restart to dictate again. Resolve it here,
+    // before touching either registration, so the state machine can never be
+    // caught mid-recording by a rebind.
+    state.recorder.cancel_if_recording(&app);
+
     if let Err(e) = app.global_shortcut().unregister(old_hotkey.as_str()) {
-        eprintln!("[Typr] Failed to unregister old hotkey '{}': {}", old_hotkey, e);
+        eprintln!("[Demod] Failed to unregister old hotkey '{}': {}", old_hotkey, e);
     }
 
     match app
@@ -615,7 +678,7 @@ fn set_hotkey(app: tauri::AppHandle, state: State<AppState>, hotkey: String) -> 
             let mut settings = state.settings.lock().unwrap();
             settings.hotkey = hotkey.clone();
             settings.save(&state.app_dir)?;
-            println!("[Typr] Hotkey rebound to {}", hotkey);
+            println!("[Demod] Hotkey rebound to {}", hotkey);
             Ok(())
         }
         Err(e) => {
@@ -626,7 +689,7 @@ fn set_hotkey(app: tauri::AppHandle, state: State<AppState>, hotkey: String) -> 
                 .on_shortcut(old_hotkey.as_str(), make_hotkey_handler(app.clone()))
             {
                 eprintln!(
-                    "[Typr] CRITICAL: failed to restore previous hotkey '{}' after failed rebind: {}",
+                    "[Demod] CRITICAL: failed to restore previous hotkey '{}' after failed rebind: {}",
                     old_hotkey, e2
                 );
             }
@@ -676,6 +739,24 @@ fn main() {
             autostart::autostart_disable,
         ])
         .setup(move |app| {
+            // FIX 1: without this, closing the settings window DESTROYS it
+            // (Tauri's default), and it can never be reopened - not from
+            // menu_open_settings, not from clicking the pill, not from the
+            // quick menu's Settings item. The app then keeps running as an
+            // unconfigurable background process. Intercept the close and hide
+            // instead, so every path that shows+focuses "main" keeps working.
+            if let Some(main_window) = app.get_webview_window("main") {
+                let main_for_close = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Err(e) = main_for_close.hide() {
+                            eprintln!("[Demod] Failed to hide main window on close: {}", e);
+                        }
+                    }
+                });
+            }
+
             // Create the overlay window: a Wispr-style status pill, bottom-center,
             // always on top. Draggable via data-tauri-drag-region in overlay.html.
             // FIXED-SIZE transparent host (Wispr "Status" window pattern): the
@@ -717,7 +798,7 @@ fn main() {
 
             match overlay {
                 Ok(overlay) => {
-                    println!("[Typr] Overlay window created");
+                    println!("[Demod] Overlay window created");
                     // Reapply the user's dragged pill position (clamped to
                     // the work area) before the first paint.
                     if let (Some(px), Some(py)) = saved_overlay_pos {
@@ -729,11 +810,11 @@ fn main() {
 
                     if !initial_overlay_visible {
                         if let Err(e) = overlay.hide() {
-                            eprintln!("[Typr] Failed to hide overlay: {}", e);
+                            eprintln!("[Demod] Failed to hide overlay: {}", e);
                         }
                     }
                 }
-                Err(e) => eprintln!("[Typr] Failed to create overlay: {}", e),
+                Err(e) => eprintln!("[Demod] Failed to create overlay: {}", e),
             }
 
             // Warm up the persistent whisper-server so dictation is fast from
@@ -746,14 +827,56 @@ fn main() {
 
             let handle = app.handle().clone();
 
-            println!("[Typr] Registering global shortcut: {}", initial_hotkey);
+            println!("[Demod] Registering global shortcut: {}", initial_hotkey);
 
             match app
                 .global_shortcut()
-                .on_shortcut(initial_hotkey.as_str(), make_hotkey_handler(handle))
+                .on_shortcut(initial_hotkey.as_str(), make_hotkey_handler(handle.clone()))
             {
-                Ok(_) => println!("[Typr] Global shortcut registered successfully"),
-                Err(e) => eprintln!("[Typr] ERROR: Failed to register global shortcut: {}", e),
+                Ok(_) => println!("[Demod] Global shortcut registered successfully"),
+                Err(e) => {
+                    // FIX 2: previously this only eprintln!'d, which in the
+                    // release build (windows_subsystem = "windows") goes
+                    // nowhere - the app looked healthy (pill visible) while
+                    // the hotkey silently never worked. Log it durably, then
+                    // retry once after a short delay (boot-time hotkey
+                    // conflicts with other autostart apps are often
+                    // transient), and only surface the fixed, actionable
+                    // overlay notice if the retry also fails.
+                    eprintln!("[Demod] ERROR: Failed to register global shortcut: {}", e);
+                    let app_dir_for_log = handle.state::<AppState>().app_dir.clone();
+                    applog::log_event(
+                        &app_dir_for_log,
+                        "hotkey",
+                        &format!("initial registration of '{}' failed: {}", initial_hotkey, e),
+                    );
+
+                    let retry_handle = handle.clone();
+                    let retry_hotkey = initial_hotkey.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        match retry_handle
+                            .global_shortcut()
+                            .on_shortcut(retry_hotkey.as_str(), make_hotkey_handler(retry_handle.clone()))
+                        {
+                            Ok(_) => println!("[Demod] Global shortcut registered on retry"),
+                            Err(e2) => {
+                                eprintln!("[Demod] ERROR: Hotkey retry registration failed: {}", e2);
+                                let app_dir_for_log = retry_handle.state::<AppState>().app_dir.clone();
+                                applog::log_event(
+                                    &app_dir_for_log,
+                                    "hotkey",
+                                    &format!("retry registration of '{}' failed: {}", retry_hotkey, e2),
+                                );
+                                let message = format!(
+                                    "The {} hotkey couldn't be registered - it may already be in use by another app.",
+                                    retry_hotkey
+                                );
+                                let _ = retry_handle.emit_to("overlay", "notice", message);
+                            }
+                        }
+                    });
+                }
             }
 
             Ok(())

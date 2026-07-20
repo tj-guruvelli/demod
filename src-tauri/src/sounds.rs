@@ -11,6 +11,7 @@
 // reported "the sounds dont play" and there was no way to tell whether the
 // call was even reached, let alone whether Windows rejected it. Now every
 // call reports.
+use demod_lib::applog;
 use windows::core::PCWSTR;
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 
@@ -36,9 +37,13 @@ fn play(bytes: &'static [u8]) -> bool {
 fn play_logged(bytes: &'static [u8], label: &str) {
     if !play(bytes) {
         eprintln!(
-            "[Typr] PlaySound rejected the {} ping ({} bytes). The sound will be silent.",
+            "[Demod] PlaySound rejected the {} ping ({} bytes). The sound will be silent.",
             label,
             bytes.len()
+        );
+        applog::log_event_default(
+            "sound",
+            &format!("PlaySound rejected the {} ping ({} bytes)", label, bytes.len()),
         );
     }
 }
@@ -78,7 +83,7 @@ pub fn preview(which: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "Windows would not play the {} sound. Check that Typr is not muted in the volume mixer.",
+            "Windows would not play the {} sound. Check that Demod is not muted in the volume mixer.",
             label
         ))
     }
