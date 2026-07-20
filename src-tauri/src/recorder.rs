@@ -114,7 +114,12 @@ fn set_status_dot(app: &AppHandle, dot: &str) {
 fn transcribe_failure_message(err: &str) -> &'static str {
     let e = err.to_ascii_lowercase();
     if e.contains("model not found") || e.contains("download a model") {
-        "No speech model yet. Open Typr settings to download one."
+        // Deliberately "the selected model", not "no model": the error is per
+        // model path, and a real config here had ggml-small.bin downloaded
+        // while the selected model was medium. "No speech model yet" would
+        // have been simply false, and would send the user looking for the
+        // wrong problem.
+        "That speech model isn't downloaded. Open Typr settings to get it."
     } else if e.contains("api key") {
         "Groq needs an API key. Add one in Typr settings."
     } else if e.contains("groq api error") {
