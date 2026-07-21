@@ -159,3 +159,42 @@ the chat. The app we are building is actively mangling the instructions used to 
 it. Mitigation: default `autoEdits` to OFF (or tighten its system prompt to "fix
 grammar/fillers only, never add or reinterpret content, never change voice/person").
 When the user's messages read like an AI describing dictation, suspect this, not the user.
+
+## 2026-07-21 — The 5-hour animation saga: four wrong deploys, one screenshot fixed it
+
+The recording/loading pill animation was rejected FOUR times across the session,
+each a distinct failure, and the root of all of them was working without the actual
+reference in hand:
+
+1. Shipped SiriWave (WebGL) - the wrong component entirely; user wanted "the Wave".
+2. Shipped a wide 10-bar meter - right species, wrong geometry (Wave is a COMPACT
+   ~5-bar cluster, an icon, not a wide meter).
+3. Bars moved together with mic level - "all same height, not wavy". The decorative
+   Wave ripples on its OWN; voice should only scale amplitude, not drive the shape.
+4. Loading showed 3 static bars - I respected `prefers-reduced-motion`, which is ON
+   on this machine, so the loop drew one frame and never animated.
+
+What ended it in one shot: the user pasted **screenshots of the actual `Wave` and
+`Wave Loader` 21st.dev components**. Seeing them made the geometry (compact 5-bar
+cluster) and behavior (continuous traveling ripple) obvious instantly.
+
+Rules:
+- For a NAMED UI component, get its reference IMAGE or SOURCE before building. A
+  demo import line (`<Wave />`) is not enough. I guessed for hours; one screenshot
+  was ground truth. (Reinforces "Research the named product instead of inferring it".)
+- `prefers-reduced-motion` is real and ON here. For a decorative indicator the sole
+  desktop user explicitly wants to move, override it - don't ship a frozen frame.
+- Voice should MODULATE a decorative animation (scale its amplitude), not BE the
+  animation - otherwise steady speech flattens every bar to the same height.
+
+## 2026-07-21 — Deploy before you debug "it's still broken"
+
+User: "the current recording is using SiriWave, not the Wave - change it." I had
+already REMOVED SiriWave in source AND built it (exit 0) - but never deployed. The
+running app was still the old build, so of course it showed SiriWave. I nearly went
+looking for a code bug that did not exist.
+
+This is one step past the existing "a repo edit is not a shipped change" lesson: even
+a successful BUILD is not shipped. The exe must be copied over
+`%LOCALAPPDATA%\Demod\demod.exe` and relaunched. When the user reports "still
+broken", the FIRST check is `installed-exe mtime vs built-exe mtime`, not the source.
