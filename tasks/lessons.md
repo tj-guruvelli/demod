@@ -122,3 +122,40 @@ Rules:
   the installed one") and I skipped it.
 - Verifying one embedded artefact is not verifying the build. Process-alive, correct
   window title and correct icon were all true of a completely broken binary.
+
+## 2026-07-21 — Wave-family component map + fetch is blocked here (paste the source)
+
+The recording/loading animations map to THREE distinct 21st.dev components. Only
+ONE was ever pasted as real source; the rest are demo-only, so do not conflate them:
+
+- Recording pill  = `Wave` from `@/components/ui/wave` -> https://21st.dev/@loading-ui/components/wave
+  ("animated wave loading indicator built from bars that pulse vertically")
+- Loading/processing = `WaveLoader` from `@/components/ui/wave-loader` -> https://21st.dev/@molecule-lab-rushil/components/wave-loader
+  (deps: motion + class-variance-authority)
+- Fallback = `SiriWave variant="fluid-dots"` from `@/components/ui/siri-wave`
+
+SOURCE STATUS: only `waveform.tsx` (a different `Waveform` bars component) was ever
+pasted (transcript line 2174). It is what the current pulsing-bars port is built from.
+`Wave`, `WaveLoader`, `SiriWave` were given as DEMO usage only (`<Wave />`), never the
+component body. `Wave` != `Waveform`.
+
+FETCHING IS DEAD ON THIS MACHINE: 21st.dev `/r/<author>/<slug>` registry -> HTTP 403
+(Cloudflare); component pages -> SPA shell, no source; loading-ui.com docs -> references
+`<ComponentSource>` but does not inline it; curl -> HTTP 000 (AV TLS interception, same
+wall that blocks new crates). So the ONLY way to get exact `Wave`/`WaveLoader` timing is
+the user pasting the `.tsx` file, or `npx shadcn add @loading-ui/wave` in a throwaway
+React project to materialize the file then read it. Do not guess the source again.
+
+The overlay is vanilla `<canvas>` (no React/Tailwind): port the DRAW LOGIC into a canvas
+loop, never drop the `.tsx` in.
+
+## 2026-07-21 — Demod's own auto-edit is corrupting the user's dictations
+
+During this session every dictated message arrived role-flipped and rambly ("You're
+going to dictate some text and I'll clean it up...", "in the compacted version for
+CloudMD..."). Root cause: the paste path runs `groq_auto_edit` (llama-3.1-8b-instant)
+which is REWRITING the user's speech into assistant-style meta-text before it reaches
+the chat. The app we are building is actively mangling the instructions used to build
+it. Mitigation: default `autoEdits` to OFF (or tighten its system prompt to "fix
+grammar/fillers only, never add or reinterpret content, never change voice/person").
+When the user's messages read like an AI describing dictation, suspect this, not the user.
