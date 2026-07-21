@@ -1,5 +1,5 @@
 # Ralph Progress Log
-Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
+Started: 2026-07-19 (Demod Wispr Flow / SuperWhisper parity run)
 ---
 
 ## Codebase Patterns
@@ -70,7 +70,7 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
   updates look atomic in isolation, the multi-field READ can still observe a torn
   combination. Use code-reviewer proactively on new concurrent/event-driven state machines
   before committing; it caught this one.
-- cargo test --lib only exercises typr_lib (settings.rs, recorder.rs, etc.) - main.rs is the
+- cargo test --lib only exercises demod_lib (settings.rs, recorder.rs, etc.) - main.rs is the
   bin crate and has no unit tests; `cargo check` (checks all targets incl. the bin) is the
   gate that actually compiles the hotkey closure in main.rs.
 - CRITICAL Win32 global-shortcut gotcha (US-006): tauri-plugin-global-shortcut's
@@ -105,7 +105,7 @@ Started: 2026-07-19 (Typr Wispr Flow / SuperWhisper parity run)
 - Files changed: src/overlay.html (rewrite), src-tauri/src/recorder.rs (update_overlay),
   src-tauri/src/main.rs (overlay creation consts/position), prd.json, progress.txt.
 - Checks: `npm run build` passed (tsc + vite, exit 0); `cargo check` in src-tauri passed
-  (exit 0, no warnings for the typr crate). Branch ralph/wispr-parity created from main
+  (exit 0, no warnings for the demod crate). Branch ralph/wispr-parity created from main
   (did not exist yet). No browser tools available - visual crossfade needs manual verification
   in a dev run.
 - **Learnings for future iterations:**

@@ -1,7 +1,7 @@
 {
-  "project": "Typr",
+  "project": "Demod",
   "branchName": "ralph/production-wave2",
-  "description": "Wave 2: make Typr production-ready as a full Wispr Flow-class product. Repo root C:/Users/guruv/tools/typr. Spec remains docs/RESEARCH-wispr-superwhisper.md. All wave-1 architecture rules still apply: transform/opacity-only overlay animation, no polling loops, Rust -> webview eval/emit state flow, webview is a pure renderer, NEVER remove src-tauri/.cargo/config.toml or lib-patch/ or sdk-patch/. Quality gate per story: 'npm run build' passes AND 'cargo check' in src-tauri passes. Full 'npm run tauri build' only in the final story. Run this wave only after the wave-1 branch (ralph/wispr-parity) is merged to main; branch this wave from main. To start: copy this file over prd.json in the repo root (archive the old one), then run ralph with a pinned cheap model: ANTHROPIC_MODEL=claude-sonnet-5 bash ~/.claude/ralph/ralph.sh --tool claude 9 from the repo root.",
+  "description": "Wave 2: make Demod production-ready as a full Wispr Flow-class product. Repo root C:/Users/guruv/tools/demod. Spec remains docs/RESEARCH-wispr-superwhisper.md. All wave-1 architecture rules still apply: transform/opacity-only overlay animation, no polling loops, Rust -> webview eval/emit state flow, webview is a pure renderer, NEVER remove src-tauri/.cargo/config.toml or lib-patch/ or sdk-patch/. Quality gate per story: 'npm run build' passes AND 'cargo check' in src-tauri passes. Full 'npm run tauri build' only in the final story. Run this wave only after the wave-1 branch (ralph/wispr-parity) is merged to main; branch this wave from main. To start: copy this file over prd.json in the repo root (archive the old one), then run ralph with a pinned cheap model: ANTHROPIC_MODEL=claude-sonnet-5 bash ~/.claude/ralph/ralph.sh --tool claude 9 from the repo root.",
   "userStories": [
     {
       "id": "W2-001",
@@ -48,7 +48,7 @@
     {
       "id": "W2-004",
       "title": "System tray, close-to-tray, launch at login",
-      "description": "As a user, I expect a dictation utility to live in the tray, not die when I close a window. Tray icon (tauri tray-icon, reuse app icon) with menu: Open Typr, Show/Hide pill, Start/Stop dictation, Quit (only full-exit path, kills whisper-server via existing handler). Settings window CloseRequested hides instead of exiting. 'Launch at login' toggle in General wired to the HKCU Run key pointing at the installed exe; on load, reflect true state and absorb the legacy Startup-folder shortcut that already exists on this machine (manage one mechanism, remove the other honestly).",
+      "description": "As a user, I expect a dictation utility to live in the tray, not die when I close a window. Tray icon (tauri tray-icon, reuse app icon) with menu: Open Demod, Show/Hide pill, Start/Stop dictation, Quit (only full-exit path, kills whisper-server via existing handler). Settings window CloseRequested hides instead of exiting. 'Launch at login' toggle in General wired to the HKCU Run key pointing at the installed exe; on load, reflect true state and absorb the legacy Startup-folder shortcut that already exists on this machine (manage one mechanism, remove the other honestly).",
       "acceptanceCriteria": [
         "Tray menu's four items work; Quit is the only process exit",
         "Closing settings leaves hotkey + pill + server running",
@@ -89,7 +89,7 @@
     {
       "id": "W2-007",
       "title": "Release 0.2.0: full build, install, end-to-end verification",
-      "description": "Release gate: bump version to 0.2.0 in tauri.conf.json, package.json, Cargo.toml. Run full 'npm run tauri build'. Silent-install the NSIS setup (/S) over AppData/Local/Typr. Launch the installed exe and verify like wave-1 US-011: typr + whisper-server processes, settings + overlay windows via user32 enumeration, screenshot to file. Confirm launch-at-login points at the installed exe. Record every result honestly in progress.txt; unverifiable items are stated as unverified, never claimed.",
+      "description": "Release gate: bump version to 0.2.0 in tauri.conf.json, package.json, Cargo.toml. Run full 'npm run tauri build'. Silent-install the NSIS setup (/S) over AppData/Local/Demod. Launch the installed exe and verify like wave-1 US-011: demod + whisper-server processes, settings + overlay windows via user32 enumeration, screenshot to file. Confirm launch-at-login points at the installed exe. Record every result honestly in progress.txt; unverifiable items are stated as unverified, never claimed.",
       "acceptanceCriteria": [
         "0.2.0 in all three manifests and the installer filename",
         "tauri build exit 0; silent install; installed exe verified running with both windows",

@@ -1,11 +1,11 @@
-# RESEARCH: Wispr Flow + SuperWhisper UX teardown (for Typr)
+# RESEARCH: Wispr Flow + SuperWhisper UX teardown (for Demod)
 
 Date: 2026-07-19. Sources: official docs (docs.wisprflow.ai, superwhisper.com/docs), changelogs
 (wisprflow.featurebase.app, superwhisper.com/changelog), engineering blog (wisprflow.ai/post/technical-challenges),
 the PillFloat reverse-engineering repo (github.com/OrangeAKA/pillfloat), and independent reviews
 (spokenly.app, tldv.io, getvoibe.com, zackproser.com). Full source list at the bottom.
 
-Scope: observable product behavior only, mapped to how Typr replicates it in Tauri v2 with a
+Scope: observable product behavior only, mapped to how Demod replicates it in Tauri v2 with a
 vanilla TS + CSS transparent always-on-top overlay webview. Hard constraints honored throughout:
 transform/opacity-only animation, no polling loops, event-driven everything.
 
@@ -33,21 +33,21 @@ transform/opacity-only animation, no polling loops, event-driven everything.
 | Feature/Behavior | Exact observable detail | Replicate in Tauri v2 |
 |---|---|---|
 | Two sizes | Main window and Mini window; a resize toggle appears on hover (top-right icon) to switch between them. Both remember position AND minification state across app restarts (v1.40.0). | One overlay window, two CSS layouts (`data-view=main|mini`) crossfaded in place. Persist `{x, y, view}` in the store. |
-| Appears on demand | Window shows on hotkey press, and auto-closes when paste succeeds (v1.40.2 "Automatically close recording window if paste was successful"). Optional Advanced setting keeps the mini window always visible as an idle indicator. | Default Typr behavior: pill always present but near-invisible at idle (Wispr model) OR SuperWhisper model behind a setting `overlay.alwaysVisible`. Auto-relax to idle on successful paste. |
+| Appears on demand | Window shows on hotkey press, and auto-closes when paste succeeds (v1.40.2 "Automatically close recording window if paste was successful"). Optional Advanced setting keeps the mini window always visible as an idle indicator. | Default Demod behavior: pill always present but near-invisible at idle (Wispr model) OR SuperWhisper model behind a setting `overlay.alwaysVisible`. Auto-relax to idle on successful paste. |
 | Position logic | Ensured on-screen when presented, otherwise centered; v2.16.1 "recording window now stays clamped to the screen edge instead of jumping off-screen"; can appear over full-screen apps (v1.45.4). | Clamp persisted coords to current work area on every show (coords can go stale when monitors change). |
-| Status indicator | Color-coded dot on the window: Yellow = model loading, Blue = processing dictation, Green = processing complete. | 8px dot in pill corner, colored via CSS var, opacity-crossfaded between colors. Yellow maps to "model warming" (relevant when Typr runs local Whisper). |
+| Status indicator | Color-coded dot on the window: Yellow = model loading, Blue = processing dictation, Green = processing complete. | 8px dot in pill corner, colored via CSS var, opacity-crossfaded between colors. Yellow maps to "model warming" (relevant when Demod runs local Whisper). |
 | Mode display | Window shows active mode name + shortcut for switching; in Super Mode it shows the current app/website context it captured. | Text label in expanded pill: current mode + detected target app name. |
 | Context capture indicator | Lights up when clipboard/selected-text context was captured, within 3 seconds of dictation start. | Small sparkle icon fading in when context grab succeeds. |
 | Hover controls | Idle mini window hover reveals: Change Mode, Start Recording, Expand. Recording hover reveals Stop. Right-click: Expand, Settings, History. | Same pattern: controls hidden at rest, revealed on hover via opacity (pointer-events gated by opacity state). |
 | Cancel guard | Cancel is instant under 30 seconds of recording; over 30s it asks for confirmation (protects long dictations from a stray Esc). | Track recording duration in Rust; >30s cancel -> pill shows inline "Discard? [Y/N]" instead of dropping audio. |
-| Live transcription | v2.10.0 added a realtime streaming UI with live transcription text displayed while you speak. | Phase 2 for Typr: streaming partials from local Whisper into an expanding text line above the waveform (opacity-fade each partial in; never reflow the pill itself, give text a fixed-height clipped strip). |
+| Live transcription | v2.10.0 added a realtime streaming UI with live transcription text displayed while you speak. | Phase 2 for Demod: streaming partials from local Whisper into an expanding text line above the waveform (opacity-fade each partial in; never reflow the pill itself, give text a fixed-height clipped strip). |
 | Waveform perf | Two separate changelog entries about waveform performance fixes (v1.40.6 "Massive performance improvements for Recording Window waveform", v2.15.0). This is a known hot spot. | Vindication of the constraint: bars via `transform: scaleY` only, one rAF loop, no canvas repaints of shadows/gradients per frame, no layout reads in the frame loop. |
 
 ---
 
 ## 2. Hotkey model
 
-| Behavior | Wispr Flow | SuperWhisper | Typr replication |
+| Behavior | Wispr Flow | SuperWhisper | Demod replication |
 |---|---|---|---|
 | Default key | Mac: `Fn` (falls back to `Ctrl+Opt` if no Apple Fn). Windows: `Ctrl+Win`. | `Option+Space` | Windows default `Ctrl+Win` feels native to Wispr users; safer conflict-free default: `Ctrl+Space` or `F9`, configurable on first run. |
 | Push-to-talk | Hold key = record; release = stop + process. | Same, "press and hold to record, release to stop". | Global shortcut with down/up: `tauri-plugin-global-shortcut` v2 reports `ShortcutState::Pressed/Released`. Start capture on Pressed, finalize on Released. |
@@ -59,7 +59,7 @@ transform/opacity-only animation, no polling loops, event-driven everything.
 
 Key premium detail: Wispr's guidance is "when you hear a ping or see the white bars moving, start
 speaking." Feedback (sound + waveform) must begin on KEYDOWN, before any model/network work.
-Typr: on Pressed event, in order: (1) emit `state:listening` to overlay, (2) play start ping
+Demod: on Pressed event, in order: (1) emit `state:listening` to overlay, (2) play start ping
 (pre-decoded buffer, ~5ms), (3) open cpal stream (keep the input device warm/pre-opened to avoid
 100-300ms device-open cost). Target: pill visibly reacts < 50ms after keydown.
 
@@ -67,22 +67,22 @@ Typr: on Pressed event, in order: (1) emit `state:listening` to overlay, (2) pla
 
 ## 3. Text insertion
 
-| Behavior | Observable detail | Typr replication |
+| Behavior | Observable detail | Demod replication |
 |---|---|---|
 | Mechanism (both apps) | Simulated paste, not char-typing: save user clipboard -> put transcript on clipboard -> synthesize Cmd/Ctrl+V -> restore previous clipboard after success. Wispr documents this exactly, including that a cancelled paste does NOT restore, and that file/RTFD/audio clipboard types are not preserved. | Rust: read clipboard (text + best-effort formats), write transcript, `SendInput` Ctrl+V (enigo or windows-rs), wait ~150-300ms, restore. SuperWhisper shaved "time to paste latency" by 300ms in v2.16.2, so keep the settle delay as short as reliably possible; detect paste completion rather than sleeping long. |
 | Fallback | Wispr: if insertion fails after retries, text stays on clipboard and the pill shows a Paste button. | Same: `paste-fallback` pill state + toast "Copied. Press Ctrl+V". |
 | Clipboard hygiene | Wispr changelog: "Cleaner clipboard experience" so dictations do not pollute third-party clipboard-manager histories. | Windows: set the `CF_CLIPBOARD_VIEWER_IGNORE` / `ExcludeClipboardContentFromMonitorProcessing` formats when writing the transient transcript. |
 | Accessibility path | Wispr states "Flow uses accessibility access to insert spoken words into other apps" (Mac AX API used for focus/context detection; insertion is still paste-based; iOS is a real keyboard). | Windows has no AX permission gate; use UIA only for reading focused-control context, keep insertion as paste. |
-| AI cleanup | Wispr always post-processes: filler-word removal ("um/uh"), self-correction handling ("no wait, make that Tuesday" applies the correction), auto punctuation from pauses/tone, list/format detection. Whole pipeline budget: 700ms after speech ends (ASR <200ms, LLM <200ms, network <200ms). | Typr v1: local Whisper transcript + light rule-based cleanup (fillers, punctuation spacing) to stay in budget; optional LLM polish pass behind a per-mode toggle. Show raw text fast rather than perfect text slow. |
+| AI cleanup | Wispr always post-processes: filler-word removal ("um/uh"), self-correction handling ("no wait, make that Tuesday" applies the correction), auto punctuation from pauses/tone, list/format detection. Whole pipeline budget: 700ms after speech ends (ASR <200ms, LLM <200ms, network <200ms). | Demod v1: local Whisper transcript + light rule-based cleanup (fillers, punctuation spacing) to stay in budget; optional LLM polish pass behind a per-mode toggle. Show raw text fast rather than perfect text slow. |
 | Per-app tone | Wispr "Styles": 4 app categories (Email, Work messaging, Personal messaging, Other), each with a tone (Formal default; Casual/Very Casual/Excited variants), style cards with live preview text. App category detected automatically (Slack -> casual, Gmail -> professional) via Context Awareness. | Map foreground process/exe (+ browser tab host later) -> category -> prompt/cleanup preset. Ship the same 4 categories with preview cards. |
 | Context awareness | Wispr reads: active app, text around the cursor, selected text, on-screen names, conversation history in chat apps, filenames in IDEs. Password fields excluded. Global toggle only (Settings -> Data & Privacy), not per-app. | Later phase: UIA read of focused element text for casing/punctuation continuation. Always excluded for password controls. |
-| Per-app modes | SuperWhisper: modes auto-activate by app/website; once auto-activated, manual override is disabled for that context. Mode carries its own voice model + AI prompt + auto-paste setting. | Typr modes = {name, activation apps, STT model, cleanup prompt, paste on/off}. Auto-activation on foreground-window change event (Win32 `EVENT_SYSTEM_FOREGROUND` hook via `SetWinEventHook`, event-driven, no polling). |
+| Per-app modes | SuperWhisper: modes auto-activate by app/website; once auto-activated, manual override is disabled for that context. Mode carries its own voice model + AI prompt + auto-paste setting. | Demod modes = {name, activation apps, STT model, cleanup prompt, paste on/off}. Auto-activation on foreground-window change event (Win32 `EVENT_SYSTEM_FOREGROUND` hook via `SetWinEventHook`, event-driven, no polling). |
 
 ---
 
 ## 4. Onboarding / setup
 
-| Step | Wispr Flow | SuperWhisper | Typr |
+| Step | Wispr Flow | SuperWhisper | Demod |
 |---|---|---|---|
 | Account | Required (Google/Apple/MS/SSO/email), browser-based sign-in, email verification. Cloud product. | None required for free local use; license unlock for Pro. | None. Local-first, no account. |
 | Permissions | Mic + Accessibility, with a re-verify flow after app updates (dedicated doc). | Onboarding wizard: Accessibility ("required for pasting text into other apps"), Microphone, input device selection. | Windows: mic permission via first `cpal` open (OS prompt). No AX equivalent needed. Onboarding still shows a mic test. |
@@ -113,17 +113,17 @@ activation flow), **Models** (voice models with per-model size labels + download
 models separately), **History** (recordings list; expand/collapse card animations), **Advanced**
 (always-visible mini window, audio muting, media pause during dictation, system audio capture,
 speaker ID). Note: it stores API keys in plaintext JSON under Application Support (called out
-negatively in reviews; Typr should use Windows Credential Manager / DPAPI).
+negatively in reviews; Demod should use Windows Credential Manager / DPAPI).
 
-Typr v1 settings map (steal the union, ship the minimum): General (hotkey, mic, language),
+Demod v1 settings map (steal the union, ship the minimum): General (hotkey, mic, language),
 Overlay (show/hide, dock edge, sounds), Dictionary, Modes (with per-app activation), Models
 (download manager with sizes), History (local only, with per-item audio delete; SuperWhisper is
-criticized for keeping audio on disk with NO toggle to disable, so Typr makes retention a
+criticized for keeping audio on disk with NO toggle to disable, so Demod makes retention a
 first-class setting), Privacy (everything local, retention days).
 
 ---
 
-## 6. SuperWhisper model catalog (for Typr's model picker copy)
+## 6. SuperWhisper model catalog (for Demod's model picker copy)
 
 Local STT (name -> size): Fast 75MB, Nano 150MB, Standard 500MB (free tier ceiling), Pro 1.5GB,
 Ultra V3 Turbo 1.6GB, Ultra V3 3.0GB, NVIDIA Parakeet V2 476MB / V3 494MB (near-realtime, custom
@@ -149,7 +149,7 @@ picker (SuperWhisper labels each model with speed/accuracy/size columns).
 4. Feedback before work. Ping + bars on keydown; capture starts immediately; device kept warm.
    Perceived latency lives here, not in the model.
 5. Latency budget as a product spec. Wispr: 700ms speech-end -> text-inserted (ASR 200 / LLM 200 /
-   network 200). Typr local target: <=700ms for a 10s utterance with the small model; show the
+   network 200). Demod local target: <=700ms for a 10s utterance with the small model; show the
    processing state only when the budget is blown (>300ms).
 6. Auto-close/relax on success (SuperWhisper v1.40.2) and a paste-latency obsession (v2.16.2
    shaved 300ms off time-to-paste). Detect paste completion; do not sleep generously.
@@ -166,7 +166,7 @@ picker (SuperWhisper labels each model with speed/accuracy/size columns).
 
 ---
 
-## 8. Top 10 premium behaviors, prioritized for Typr
+## 8. Top 10 premium behaviors, prioritized for Demod
 
 1. **<50ms keydown feedback**: pill lights + ping + capture start on key press, everything else after.
 2. **700ms speech-end-to-text-inserted budget**, processing UI shown only past 300ms.
@@ -187,11 +187,11 @@ picker (SuperWhisper labels each model with speed/accuracy/size columns).
 
 ---
 
-## 9. Suggested Typr overlay state machine
+## 9. Suggested Demod overlay state machine
 
 `hidden -> idle -> listening -> processing -> inserting -> done -> idle`
 plus `paste-fallback` (from inserting) and `error` (from any). Transitions are events from Rust
-(`typr://state` emit); the webview is a pure renderer of `data-state` on the pill root. All state
+(`demod://state` emit); the webview is a pure renderer of `data-state` on the pill root. All state
 visuals pre-mounted; CSS handles the crossfade; JS only sets the attribute and feeds waveform vars.
 
 ---

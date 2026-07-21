@@ -111,7 +111,101 @@ fn respawn_whisper_server(app: &tauri::AppHandle, state: &AppState) {
 fn get_app_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.typr.app")
+        .join("com.demod.app")
+}
+
+/// One-time data migration from the pre-rename identity (`com.typr.app`).
+///
+/// The app data dir is derived from the bundle identity. When the app was
+/// renamed Typr -> Demod, that identity moved to `com.demod.app`, orphaning any
+/// `config.json` (the user's settings + API key) and the downloaded whisper
+/// model (`ggml-*.bin`, ~0.5-3GB) that were sitting under the old dir. The
+/// symptom was the app re-downloading the model on every launch and "forgetting"
+/// settings. This copies those forward ONCE so an upgraded install keeps them.
+///
+/// Copy, never move: the old dir is left intact until the user is satisfied.
+/// Never overwrite a file that already exists in the new dir, so a newer
+/// new-dir config always wins over the stale legacy one. Idempotent.
+fn migrate_legacy_app_dir(new_dir: &std::path::Path) {
+    let Some(base) = dirs::config_dir() else { return };
+    let old_dir = base.join("com.typr.app");
+    if !old_dir.exists() || old_dir.as_path() == new_dir {
+        return;
+    }
+    if let Err(e) = std::fs::create_dir_all(new_dir) {
+        eprintln!("[Demod] migrate: create new dir failed: {}", e);
+        return;
+    }
+    let entries = match std::fs::read_dir(&old_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[Demod] migrate: read old dir failed: {}", e);
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Only durable user data: settings + the whisper model(s). Skip logs,
+        // webview caches, tmp files - those regenerate.
+        let is_config = name_str == "config.json";
+        let is_model = name_str.starts_with("ggml-") && name_str.ends_with(".bin");
+        if !(is_config || is_model) {
+            continue;
+        }
+        let dest = new_dir.join(&name);
+        if dest.exists() {
+            continue; // never clobber data already present in the new dir
+        }
+        // Copy to a temp sibling first, then atomically rename into place. A
+        // kill / AV / power-loss mid-copy must never leave a TRUNCATED file at
+        // `dest`: the exists()-only idempotency check above would then treat it
+        // as "already migrated" forever, and a truncated ggml-*.bin has no
+        // checksum safety net (check_model_downloaded is a bare .exists()), so
+        // local transcription would silently break. Mirrors history.rs/settings.rs.
+        let tmp = new_dir.join(format!("{}.migrating", name_str));
+        match std::fs::copy(entry.path(), &tmp) {
+            Ok(_) => match std::fs::rename(&tmp, &dest) {
+                Ok(_) => eprintln!("[Demod] migrated {} from com.typr.app", name_str),
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    eprintln!("[Demod] migrate: rename {} failed: {}", name_str, e);
+                }
+            },
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                eprintln!("[Demod] migrate: copy {} failed: {}", name_str, e);
+            }
+        }
+    }
+}
+
+/// Single-instance guard via a session-scoped named mutex. Uses the `windows`
+/// crate already in the dependency set (no new crate to fetch - the repo builds
+/// offline). Without this, a second launch starts a duplicate that fights the
+/// first over the global hotkey ("HotKey already registered" in the log), after
+/// which recording and the start/stop pings silently stop working. Returns true
+/// iff THIS process is the first instance.
+#[cfg(target_os = "windows")]
+fn acquire_single_instance() -> bool {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+    // Session-local name (no "Global\\" prefix): one instance per user session.
+    let name: Vec<u16> = "com.demod.app.singleton\0".encode_utf16().collect();
+    unsafe {
+        match CreateMutexW(None, false, PCWSTR(name.as_ptr())) {
+            Ok(_handle) => {
+                // GetLastError must be read immediately after CreateMutexW.
+                // HANDLE is Copy and is never auto-closed, so the mutex stays
+                // held for the whole process (freed by the OS on exit) - exactly
+                // the single-instance behaviour we want; nothing leaks.
+                GetLastError() != ERROR_ALREADY_EXISTS
+            }
+            // If the mutex can't be created, don't block startup.
+            Err(_) => true,
+        }
+    }
 }
 
 #[tauri::command]
@@ -223,6 +317,60 @@ async fn toggle_recording(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     do_toggle_recording(&app, &state).await
+}
+
+/// Discard an in-progress recording WITHOUT transcribing or pasting it.
+/// Triggered by the X-circle cancel button in the recording pill (overlay.html)
+/// so the user can bail out of a dictation they don't want captured anywhere.
+/// Reuses the same discard path as the Esc cancel shortcut. No-op if nothing is
+/// currently recording.
+#[tauri::command]
+fn cancel_recording(app: tauri::AppHandle, state: State<AppState>) {
+    state.recorder.cancel_if_recording(&app);
+}
+
+// --- Local transcript history (History + Privacy tabs) ---
+// All read/write history.json on demand via state.app_dir, mirroring
+// check_model_downloaded. Nothing here ever touches the network.
+
+#[tauri::command]
+fn list_history(state: State<AppState>) -> Vec<demod_lib::history::HistoryItem> {
+    demod_lib::history::HistoryStore::load(&state.app_dir).newest_first()
+}
+
+#[tauri::command]
+fn delete_history_item(state: State<AppState>, id: String) -> Result<(), String> {
+    demod_lib::history::with_lock(|| {
+        let mut store = demod_lib::history::HistoryStore::load(&state.app_dir);
+        store.delete(&id);
+        store.save(&state.app_dir)
+    })
+}
+
+#[tauri::command]
+fn clear_history(state: State<AppState>) -> Result<(), String> {
+    demod_lib::history::with_lock(|| {
+        let mut store = demod_lib::history::HistoryStore::load(&state.app_dir);
+        store.clear();
+        store.save(&state.app_dir)
+    })
+}
+
+#[tauri::command]
+fn copy_history_item(state: State<AppState>, id: String) -> Result<(), String> {
+    let store = demod_lib::history::HistoryStore::load(&state.app_dir);
+    let item = store
+        .items
+        .iter()
+        .find(|it| it.id == id)
+        .ok_or_else(|| "History item not found".to_string())?;
+    // Copy-only (never auto-paste from history: the focused app at copy time is
+    // the Settings window). Reuses the same clipboard write as copy-only mode.
+    if paste::copy_only(&item.text) {
+        Ok(())
+    } else {
+        Err("Could not copy to the clipboard".to_string())
+    }
 }
 
 /// Shared logic for toggle recording, used by both the Tauri command and hotkey handler.
@@ -702,11 +850,29 @@ fn set_hotkey(app: tauri::AppHandle, state: State<AppState>, hotkey: String) -> 
 }
 
 fn main() {
+    // Refuse to start a second copy: a duplicate would grab-fail the global
+    // hotkey and leave both instances half-broken (no recording, no pings).
+    #[cfg(target_os = "windows")]
+    if !acquire_single_instance() {
+        eprintln!("[Demod] Another instance is already running; exiting.");
+        return;
+    }
+
     let app_dir = get_app_dir();
+    migrate_legacy_app_dir(&app_dir);
     let settings = Settings::load(&app_dir);
     let initial_hotkey = settings.hotkey.clone();
     let saved_overlay_pos = (settings.overlay_x, settings.overlay_y);
     let initial_overlay_visible = settings.overlay_visible;
+
+    // Apply history retention once at startup (also enforced on every append),
+    // so a "delete after N days" setting takes effect even between dictations.
+    if settings.history_enabled && settings.history_retention_days > 0 {
+        let mut store = demod_lib::history::HistoryStore::load(&app_dir);
+        if store.prune_older_than(settings.history_retention_days as u128 * 86_400_000) > 0 {
+            let _ = store.save(&app_dir);
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -728,6 +894,11 @@ fn main() {
             check_model_downloaded,
             download_model,
             toggle_recording,
+            cancel_recording,
+            list_history,
+            delete_history_item,
+            clear_history,
+            copy_history_item,
             menu_hide_hour,
             menu_paste_last,
             menu_open_settings,

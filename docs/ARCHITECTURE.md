@@ -1,4 +1,4 @@
-# Typr Architecture: Boundaries, Contracts and Language
+# Demod Architecture: Boundaries, Contracts and Language
 
 > Produced 2026-07-20 from a module-seam audit, then spot-verified against the code.
 > Its purpose is narrow and practical: **every serious break in this project so far has
@@ -21,7 +21,7 @@ There are two crates, and the split is uneven:
 Two consequences that bite:
 
 - `cargo test --lib` does **not** compile the binary crate. A signature change can break
-  `main.rs` while `--lib` stays green. Always also run `cargo check --bin typr`.
+  `main.rs` while `--lib` stays green. Always also run `cargo check --bin demod`.
 - `pill_hittest` reaches *upward* into the binary root for `crate::AppState` and
   `crate::OVERLAY_W/OVERLAY_H`. Nothing else in the tree does this.
 
@@ -157,7 +157,7 @@ Verified stale, worth deleting or fixing when next in the file:
 
 ## 6. Rules that follow from the above
 
-1. Run **both** `cargo test --lib` and `cargo check --bin typr`. The lib gate does not
+1. Run **both** `cargo test --lib` and `cargo check --bin demod`. The lib gate does not
    compile `main.rs`.
 2. Changing a pill state, event name, command name, or DOM id is a **two-sided** change.
    Grep the other side; the compiler will not help you.

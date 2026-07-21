@@ -26,11 +26,29 @@ interface Settings {
   trailingSpace?: boolean;
   capitalize?: boolean;
   ensurePunctuation?: boolean;
+  voiceSensitivity?: number;
+  whisperThreshold?: number;
+  // History (history.rs) — persisted local-history opt-in and auto-delete window.
+  historyEnabled?: boolean;
+  historyRetentionDays?: number;
+  // Clean-up & AI edits (cleanup.rs) — both persisted, both default true.
+  removeFillers?: boolean;
+  autoEdits?: boolean;
 }
 
 interface MicDevice {
   name: string;
   is_default: boolean;
+}
+
+interface HistoryItem {
+  id: string;
+  text: string;
+  tsMs: number;
+  engine: string;
+  model: string;
+  charCount: number;
+  durationMs: number | null;
 }
 
 interface DownloadProgress {
@@ -66,6 +84,10 @@ const localLanguageSettings = document.getElementById("local-language-settings")
 const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
 const cloudModelSelect = document.getElementById("cloud-model-select") as HTMLSelectElement;
 const dictionaryTextarea = document.getElementById("dictionary-textarea") as HTMLTextAreaElement;
+const voiceSensitivitySlider = document.getElementById("voice-sensitivity-slider") as HTMLInputElement;
+const voiceSensitivityValue = document.getElementById("voice-sensitivity-value") as HTMLSpanElement;
+const whisperThresholdSlider = document.getElementById("whisper-threshold-slider") as HTMLInputElement;
+const whisperThresholdValue = document.getElementById("whisper-threshold-value") as HTMLSpanElement;
 const textToggleList = document.getElementById("text-toggle-list")!;
 const soundsSwitch = document.getElementById("sounds-switch")!;
 const overlaySwitch = document.getElementById("overlay-switch")!;
@@ -74,6 +96,22 @@ const dockPositionText = document.getElementById("dock-position-text")!;
 const footerSidecar = document.getElementById("footer-sidecar")!;
 const footerModel = document.getElementById("footer-model")!;
 const footerHotkey = document.getElementById("footer-hotkey")!;
+const historyList = document.getElementById("history-list")!;
+const historyCount = document.getElementById("history-count")!;
+const historyEmpty = document.getElementById("history-empty")!;
+const historyClearBtn = document.getElementById("history-clear-btn") as HTMLButtonElement;
+const historyEnabledSwitch = document.getElementById("history-enabled-switch")!;
+const historyRetentionSelect = document.getElementById("history-retention-select") as HTMLSelectElement;
+const privacyClearHistoryBtn = document.getElementById("privacy-clear-history-btn") as HTMLButtonElement;
+const historySearch = document.getElementById("history-search") as HTMLInputElement;
+const historyStats = document.getElementById("history-stats")!;
+const historyStatTotal = document.getElementById("history-stat-total")!;
+const historyStatWords = document.getElementById("history-stat-words")!;
+const historyStatSaved = document.getElementById("history-stat-saved")!;
+const historyEmptyTitle = document.getElementById("history-empty-title")!;
+const removeFillersSwitch = document.getElementById("remove-fillers-switch")!;
+const autoEditsSwitch = document.getElementById("auto-edits-switch")!;
+const dataflowCloud = document.getElementById("dataflow-cloud")!;
 
 // Section navigation — role=tablist/tab/tabpanel pattern (chosen over plain
 // focusable buttons because the sidebar genuinely IS a section switcher with
@@ -104,6 +142,13 @@ function activateTab(item: HTMLElement, { focus = true }: { focus?: boolean } = 
     return;
   }
   activeSectionId = next.id;
+
+  // Refresh every time the History tab opens rather than relying on the
+  // load-time render staying current — a dictation made while another tab
+  // is open must show up without reopening the whole window.
+  if (target === "history") {
+    renderHistory().catch((err) => console.error("[Demod] renderHistory failed:", err));
+  }
 
   navItems.forEach((n) => {
     n.classList.remove("active");
@@ -272,11 +317,11 @@ const LANGUAGE_CATALOG = [
 const CLOUD_MODEL_CATALOG = [
   {
     id: "whisper-large-v3",
-    label: "Large v3 (most accurate, default)",
+    label: "Large v3 (most accurate)",
   },
   {
     id: "whisper-large-v3-turbo",
-    label: "Large v3 Turbo (faster, less accurate)",
+    label: "Large v3 Turbo (fastest, default)",
   },
   {
     id: "distil-whisper-large-v3-en",
@@ -436,13 +481,36 @@ async function loadSettings() {
 
   // Cloud model (Groq, cloud engine only)
   populateSelectCatalog(cloudModelSelect, CLOUD_MODEL_CATALOG);
-  setCloudModel(currentSettings.cloudModel ?? "whisper-large-v3");
+  setCloudModel(currentSettings.cloudModel ?? "whisper-large-v3-turbo");
 
   // Dictionary (custom vocabulary, both engines)
   dictionaryTextarea.value = currentSettings.dictionary ?? "";
 
+  // Voice detection (silence gate + whisper threshold)
+  const vs = currentSettings.voiceSensitivity ?? 0.035;
+  voiceSensitivitySlider.value = String(vs);
+  voiceSensitivityValue.textContent = vs.toFixed(3);
+  const wt = currentSettings.whisperThreshold ?? 0.5;
+  whisperThresholdSlider.value = String(wt);
+  whisperThresholdValue.textContent = wt.toFixed(2);
+
   // Text-processing toggles (auto-paste, trailing space, capitalize, punctuation)
   renderToggleRows(textToggleList, TEXT_TOGGLE_CATALOG);
+
+  // Clean-up & AI edits
+  setRemoveFillers(currentSettings.removeFillers ?? true);
+  setAutoEdits(currentSettings.autoEdits ?? true);
+
+  // History (opt-in local transcript log) + Privacy retention controls
+  const historyEnabled = currentSettings.historyEnabled ?? true;
+  historyEnabledSwitch.classList.toggle("active", historyEnabled);
+  historyEnabledSwitch.setAttribute("aria-checked", String(historyEnabled));
+  // Clamp to a known option rather than trusting a persisted value verbatim —
+  // an unrecognized value would leave the <select> showing nothing selected.
+  const retentionOptions = ["0", "7", "30", "90"];
+  const retentionValue = String(currentSettings.historyRetentionDays ?? 0);
+  historyRetentionSelect.value = retentionOptions.includes(retentionValue) ? retentionValue : "0";
+  await renderHistory();
 
   // Interaction sounds
   setInteractionSounds(currentSettings.interactionSounds ?? true);
@@ -506,6 +574,28 @@ function setOverlayVisible(enabled: boolean) {
   overlaySwitch.classList.toggle("active", enabled);
   overlaySwitch.setAttribute("aria-checked", String(enabled));
   refreshAdvisories();
+}
+
+function setRemoveFillers(enabled: boolean) {
+  currentSettings.removeFillers = enabled;
+  removeFillersSwitch.classList.toggle("active", enabled);
+  removeFillersSwitch.setAttribute("aria-checked", String(enabled));
+}
+
+function setAutoEdits(enabled: boolean) {
+  currentSettings.autoEdits = enabled;
+  autoEditsSwitch.classList.toggle("active", enabled);
+  autoEditsSwitch.setAttribute("aria-checked", String(enabled));
+  updateDataflowCopy();
+}
+
+// Privacy tab's cloud data-flow line: honest about whether the transcript
+// (not just audio) also goes to Groq, which only happens when auto-edits is on.
+function updateDataflowCopy() {
+  const autoEdits = currentSettings?.autoEdits ?? true;
+  dataflowCloud.innerHTML = autoEdits
+    ? "<strong>Cloud (Groq):</strong> audio is sent to Groq for transcription, and the transcript is sent to Groq for AI clean-up."
+    : "<strong>Cloud (Groq):</strong> audio is sent to Groq for transcription.";
 }
 
 /// Reflects real Windows autostart state in the switch. This is NOT part of
@@ -603,6 +693,111 @@ async function renderModelCards() {
       ? `Model: Groq ${currentSettings.cloudModel}`
       : `Model: ${currentSettings.whisperModel}${suffix}`;
 }
+
+// Transcript text is arbitrary user content injected into innerHTML below —
+// every interpolated field must go through this first or it's an XSS hole.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Cached full result of the last list_history call, so the search box can
+// filter client-side without a round trip on every keystroke.
+let historyItems: HistoryItem[] = [];
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/// Renders the History tab list from list_history. Re-run on every entry
+/// into the History tab (activateTab) and after any mutating action
+/// (copy/delete/clear) so the list never goes stale.
+async function renderHistory() {
+  historyItems = await invoke<HistoryItem[]>("list_history");
+  renderHistoryStats();
+  renderHistoryList();
+  const hasItems = historyItems.length > 0;
+  historyClearBtn.disabled = !hasItems;
+  privacyClearHistoryBtn.disabled = !hasItems;
+}
+
+// Stats strip: total dictations, total words, and a rough "typed vs spoken"
+// time saved estimate. Hidden entirely when there is nothing to summarize.
+function renderHistoryStats() {
+  if (historyItems.length === 0) {
+    historyStats.classList.add("hidden");
+    return;
+  }
+  const totalWords = historyItems.reduce((sum, item) => sum + wordCount(item.text), 0);
+  const minutesSaved = Math.max(0, Math.round(totalWords * (1 / 40 - 1 / 150)));
+  historyStats.classList.remove("hidden");
+  historyStatTotal.textContent = String(historyItems.length);
+  historyStatWords.textContent = String(totalWords);
+  historyStatSaved.textContent = `~${minutesSaved} min`;
+}
+
+// Live, case-insensitive, client-only filter over the cached items — applied
+// on every keystroke in #history-search, nothing persisted.
+function renderHistoryList() {
+  const query = historySearch.value.trim().toLowerCase();
+  const filtered = query
+    ? historyItems.filter((item) => item.text.toLowerCase().includes(query))
+    : historyItems;
+
+  if (historyItems.length === 0) {
+    historyEmpty.hidden = false;
+    historyEmptyTitle.textContent =
+      currentSettings.historyEnabled === false
+        ? "History saving is off — turn it on in Privacy to keep transcripts."
+        : "No transcripts yet — dictate something and it'll show up here.";
+    historyList.innerHTML = "";
+    historyCount.textContent = "";
+    return;
+  }
+
+  historyCount.textContent = `${historyItems.length} saved`;
+
+  if (filtered.length === 0) {
+    historyEmpty.hidden = false;
+    historyEmptyTitle.textContent = "No transcripts match your search.";
+    historyList.innerHTML = "";
+    return;
+  }
+
+  historyEmpty.hidden = true;
+  historyList.innerHTML = filtered
+    .map((item) => {
+      const when = new Date(item.tsMs).toLocaleString();
+      const words = wordCount(item.text);
+      const metaParts = [
+        escapeHtml(when),
+        escapeHtml(item.engine),
+        escapeHtml(item.model),
+        `${words} word${words === 1 ? "" : "s"}`,
+      ];
+      if (item.durationMs != null) {
+        metaParts.push(`${(item.durationMs / 1000).toFixed(1)}s`);
+      }
+      return `
+      <div class="history-row" data-history-id="${escapeHtml(item.id)}">
+        <div class="history-text">${escapeHtml(item.text)}</div>
+        <div class="history-meta">
+          <span>${metaParts.join(" &middot; ")}</span>
+        </div>
+        <div class="history-actions">
+          <button type="button" class="btn-secondary" data-copy="${escapeHtml(item.id)}">Copy</button>
+          <button type="button" class="btn-secondary" data-delete="${escapeHtml(item.id)}">Delete</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+historySearch.addEventListener("input", () => renderHistoryList());
 
 /// Window-level failure message. Kept to one line of plain language: the
 /// detail belongs in the log, not on screen.
@@ -784,6 +979,16 @@ overlaySwitch.addEventListener("click", () => {
   saveSettings();
 });
 
+removeFillersSwitch.addEventListener("click", () => {
+  setRemoveFillers(!(currentSettings.removeFillers ?? true));
+  saveSettings();
+});
+
+autoEditsSwitch.addEventListener("click", () => {
+  setAutoEdits(!(currentSettings.autoEdits ?? true));
+  saveSettings();
+});
+
 // Launch at startup: not part of currentSettings/save_settings — each click
 // calls the real enable/disable command and the switch only ever shows what
 // that command actually achieved. On failure, re-query the true state rather
@@ -834,6 +1039,20 @@ dictionaryTextarea.addEventListener("change", () => {
   saveSettings();
 });
 
+voiceSensitivitySlider.addEventListener("input", () => {
+  const v = parseFloat(voiceSensitivitySlider.value);
+  currentSettings.voiceSensitivity = v;
+  voiceSensitivityValue.textContent = v.toFixed(3);
+});
+voiceSensitivitySlider.addEventListener("change", () => { saveSettings(); });
+
+whisperThresholdSlider.addEventListener("input", () => {
+  const v = parseFloat(whisperThresholdSlider.value);
+  currentSettings.whisperThreshold = v;
+  whisperThresholdValue.textContent = v.toFixed(2);
+});
+whisperThresholdSlider.addEventListener("change", () => { saveSettings(); });
+
 // Single delegated listener for every toggle the generic renderToggleRows()
 // produces (currently TEXT_TOGGLE_CATALOG, but works for any future catalog
 // rendered into a container this way) — writes the cached setting AND saves,
@@ -846,6 +1065,114 @@ textToggleList.addEventListener("click", (e) => {
   currentSettings[key] = next;
   btn.classList.toggle("active", next);
   btn.setAttribute("aria-checked", String(next));
+  saveSettings();
+});
+
+// Rows waiting on a second Delete click to confirm — cleared on click-away
+// re-render (renderHistoryList rebuilds fresh buttons, so a stale armed
+// state can never linger past the next render).
+const armedDeleteTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Delegated listener for every history row's Copy/Delete button.
+historyList.addEventListener("click", async (e) => {
+  const target = (e.target as HTMLElement).closest("button");
+  if (!target) return;
+  const copyId = target.getAttribute("data-copy");
+  const deleteId = target.getAttribute("data-delete");
+
+  if (copyId) {
+    const btn = target as HTMLButtonElement;
+    const original = btn.textContent ?? "Copy";
+    try {
+      await invoke("copy_history_item", { id: copyId });
+      btn.textContent = "Copied";
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1500);
+    } catch (err) {
+      console.error("[Demod] copy_history_item failed:", err);
+      showAppNotice("Could not copy that transcript.", "error");
+    }
+    return;
+  }
+
+  if (deleteId) {
+    const btn = target as HTMLButtonElement;
+    const original = btn.textContent ?? "Delete";
+    if (!armedDeleteTimers.has(deleteId)) {
+      btn.textContent = "Confirm?";
+      const timer = setTimeout(() => {
+        armedDeleteTimers.delete(deleteId);
+        btn.textContent = original;
+      }, 3000);
+      armedDeleteTimers.set(deleteId, timer);
+      return;
+    }
+
+    const timer = armedDeleteTimers.get(deleteId);
+    if (timer) clearTimeout(timer);
+    armedDeleteTimers.delete(deleteId);
+
+    try {
+      await invoke("delete_history_item", { id: deleteId });
+    } catch (err) {
+      console.error("[Demod] delete_history_item failed:", err);
+      showAppNotice("Could not delete that transcript.", "error");
+    }
+    await renderHistory();
+  }
+});
+
+// Two-click inline confirm for a destructive, no-undo action — no modal (the
+// user hates nags). First click arms a 3s window and relabels the button;
+// a second click within that window actually clears; letting the window
+// lapse reverts the label with no action taken. Shared by both Clear-all
+// entry points (History tab card header, Privacy tab).
+function wireClearHistoryButton(btn: HTMLButtonElement) {
+  const originalLabel = btn.textContent ?? "Clear all";
+  let armed = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  btn.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true;
+      btn.textContent = "Click again to confirm";
+      timer = setTimeout(() => {
+        armed = false;
+        btn.textContent = originalLabel;
+        timer = null;
+      }, 3000);
+      return;
+    }
+
+    if (timer) clearTimeout(timer);
+    armed = false;
+    btn.textContent = originalLabel;
+    try {
+      await invoke("clear_history");
+    } catch (err) {
+      console.error("[Demod] clear_history failed:", err);
+      showAppNotice("Could not clear history.", "error");
+    }
+    await renderHistory();
+  });
+}
+
+wireClearHistoryButton(historyClearBtn);
+wireClearHistoryButton(privacyClearHistoryBtn);
+
+historyEnabledSwitch.addEventListener("click", () => {
+  const next = !(currentSettings.historyEnabled ?? true);
+  currentSettings.historyEnabled = next;
+  historyEnabledSwitch.classList.toggle("active", next);
+  historyEnabledSwitch.setAttribute("aria-checked", String(next));
+  saveSettings();
+});
+
+historyRetentionSelect.addEventListener("change", () => {
+  currentSettings.historyRetentionDays = parseInt(historyRetentionSelect.value, 10);
   saveSettings();
 });
 

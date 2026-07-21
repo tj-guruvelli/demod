@@ -13,8 +13,204 @@ UNVERIFIED section at the bottom, not asserted in the body.
   fetch-the-primary-source rule. Where those agents relied on a search engine's summary of a doc
   page rather than a direct fetch, that is flagged inline as `[search-summarised]`.
 - Pricing figures move. All prices captured 2026-07-20.
-- Typr's current feature set was verified against source at `src-tauri/src/settings.rs` and the
+- Demod's current feature set was verified against source at `src-tauri/src/settings.rs` and the
   `#[tauri::command]` surface in `src-tauri/src/main.rs`, not taken on trust from the brief.
+
+---
+
+# 2026-07-21 UPDATE — deep dive for Demod's History / Privacy / Notes tabs
+
+Added this pass to spec the three tabs Demod is about to build. Every claim here was pulled
+**2026-07-21 via the Apify `rag-web-browser` actor** against the live Wispr help-centre pages
+(HTTP 200 verified, full page markdown read), not a search summary. Two things changed
+materially since the 2026-07-20 body below, and I have corrected the stale facts inline further
+down as well:
+
+1. **Privacy Mode was split into TWO independent controls** — *Privacy Mode* (training) and
+   *Private Cloud Sync* (server-side storage). The old single-toggle model in section D is legacy.
+2. **The Context-Awareness accessibility-vs-OCR default split is now CONFIRMED** from a real page
+   (it was UNVERIFIED #2 before): accessibility-text **on** by default, Screen OCR **off**/opt-in.
+
+## TAB 1 — HISTORY (Wispr calls it "Home")
+
+**(a) What Wispr does** — verified from
+https://docs.wisprflow.ai/articles/5096240724-navigating-the-wispr-flow-app-desktop-ios-and-android
+
+- The desktop **Home** page is the landing page and doubles as history. Left column: a welcome
+  header showing **total word count + your dictation shortcut**, then the **full transcript
+  history grouped by day** — literal buckets **Today**, **Yesterday**, then by date.
+- **Search** sits at the top of the page and filters the whole history.
+- **Per-entry actions on hover (desktop):** **Copy**, **Flag**, and **Take action**. (That's the
+  entire desktop hover set — it is deliberately small.)
+- **Right column is a stats card:** **streak**, **average WPM**, **total words**.
+- **Mobile is where the richer per-item action set lives** (useful because Demod is a desktop app
+  but these are the affordances users now expect):
+  - iOS: **tap** a transcript to copy; **tap a failed one to retry**; **swipe left → Flag / Retry
+    / Copy**; **long-press → Copy, Retry, Report, Delete**.
+  - Android: each transcript row offers **Copy, Report, Delete, Retry**.
+- **Stats gating (iOS):** stats stay hidden until you have dictated **500 words total**, then show
+  **Words Spoken, Days Used, Words Per Minute**. (A nice "earn your dashboard" pattern.)
+- History is also reachable **without opening the Hub**: the Flow Bar right-click menu has a
+  **Transcript history** item and a **Paste last transcript** item.
+- Retry semantics (from the errors page, section A7/errors below): a failed transcript keeps its
+  **saved audio**, and retry **reprocesses without creating a duplicate history entry**.
+
+**(b) Sources:** app-nav page above; errors page
+https://docs.wisprflow.ai/articles/4984532368-fix-taking-longer-than-usual-and-transcription-errors
+
+**(c) Concrete build for Demod's History tab (to read as "very similar to Wispr"):**
+- Persisted, searchable transcript list **grouped by day** with `Today` / `Yesterday` / date
+  headers. Search box pinned at top, filters title+content.
+- Per-row hover actions, minimum viable set = **Copy**, **Re-insert/Paste** (Demod's promoted
+  `menu_paste_last`), **Delete**; add **Retry** on rows whose transcription failed, and **Report/
+  Flag** if/when Demod grows a feedback path. Keep the row itself click-to-copy like iOS.
+- A small **stats strip**: total words, a streak, and average WPM. These are all derivable from
+  data Demod already produces (word count per transcript + timestamps); WPM needs recording
+  duration, which Demod has at capture time. Consider Wispr's 500-word unlock as a tasteful touch,
+  or just show zeros — either reads fine.
+- Each row needs: timestamp, the text, source app (if Demod adds context-awareness later),
+  engine used (local/Groq) as a subtle badge, and a "failed → saved audio → retry" state.
+- This tab is the keystone: it is also Demod's **paste-failure safety net** (a lost paste is
+  recoverable because the transcript is in history) and the host for **retry**.
+
+## TAB 2 — PRIVACY (Wispr calls it "Data & Privacy")
+
+**(a) What Wispr does — the CURRENT two-control model** — verified from
+https://docs.wisprflow.ai/articles/4709791908-understanding-privacy-mode-and-cloud-sync
+and the security FAQ https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq
+
+Wispr now governs dictation data with **two independent toggles** in Settings → Data & Privacy:
+
+| Control | Governs | ON | OFF |
+|---|---|---|---|
+| **Privacy Mode** | Whether your audio/transcripts/edits are used to **train / improve AI models** | Never used for training, by Wispr or any third party | "Share Data" — may be used to improve models (default for trial/standard) |
+| **Private Cloud Sync** | Whether transcription + notes data is **stored on Wispr's servers** | Stored server-side; enables cross-device Scratchpad sync, meeting sharing, Notetaker, todos sync | Not stored server-side; those sync features stop. Dictation still works; raw transcripts may still be uploaded transiently to power core dictation |
+
+The four combinations (verbatim truth table from the page):
+
+| Privacy Mode | Cloud Sync | Meaning |
+|---|---|---|
+| OFF | ON | May train on data + stored server-side. All features. |
+| ON | ON | No training, but stored server-side so sync features still work. |
+| ON | OFF | **Zero Data Retention** — identical to the old single Privacy Mode. No training, no server storage. Sync features off. |
+| OFF | OFF | No server storage of sync-gated data, but data may still be used for training while transmitted in real time. |
+
+Other verified privacy mechanics that matter for a Demod parity build:
+
+- **"Zero Data Retention (ZDR)"** is Wispr's shorthand for *Privacy Mode ON + Cloud Sync OFF*.
+  Enterprises can enforce it org-wide (locks both toggles). A **HIPAA BAA permanently locks**
+  Privacy Mode ON + Cloud Sync OFF and is **irreversible**.
+- **What always syncs regardless of Cloud Sync:** **Dictionary entries, Snippets, and
+  subscription/account settings** — Wispr classifies these as "user-authored productivity assets,"
+  not dictation content, and stores them server-side (encrypted, TLS 1.2+, access-controlled)
+  even under ZDR.
+- **Local data storage is a SEPARATE, third control** (desktop), independent of Cloud Sync:
+  **Store data locally (default) / Auto-delete every 24 hours / Never store data locally.** The
+  24h and "Never" options also clear locally stored **Polish history and Instruct/command history**
+  and hide the voice-profile UI. (This was `[search-summarised]` before; now confirmed.)
+- **Context Awareness = two separately-toggled sub-features** (this resolves old UNVERIFIED #2):
+  - **Accessibility-text context — DEFAULT ON.** Reads text from the active app's accessibility
+    tree to improve AI formatting.
+  - **Screen OCR — DEFAULT OFF, opt-in.** Captures a full-display screenshot (the display under
+    the mouse cursor) to extract proper nouns. Screenshots only flow when **both** toggles are on;
+    if accessibility-text is off, Screen OCR is force-disabled. **"Password field contents are
+    never read or included in context data."**
+- **Data & Privacy page also holds:** Context Awareness, Local storage, **Default note visibility**,
+  **Sync Notes / "Hard refresh notes"** button (disabled when Cloud Sync is off), and HIPAA BAA
+  controls (**View signed BAA / Revoke BAA** on desktop).
+- **Cloud-only transcription remains true** and remains Demod's edge: "Wispr's backend must decrypt
+  audio to perform transcription," so there is no local/on-device mode and no true E2E encryption
+  at any tier. Demod's local whisper.cpp is a capability Wispr cannot match.
+- **Deletion + export (for a "delete all my data" affordance):** account deletion runs an
+  async erasure workflow across account DB, usage/history, stored audio, stored content, retrying
+  until done (minutes to ~1h). GDPR export bundles account info, subscriptions, **notes,
+  dictionaries, usage stats**, and full dictation history *when Cloud Sync is on*.
+
+**(b) Sources:** the two URLs above.
+
+**(c) Concrete build for Demod's Privacy tab.** Demod is local-first, so most of Wispr's
+cloud-storage machinery does not apply — which is exactly the story to tell. Recommended contents:
+
+- A headline that states Demod's actual posture plainly: **"Local-first. Your audio and transcripts
+  stay on this machine unless you choose the cloud engine."** This is the honest, differentiated
+  version of Wispr's privacy page and it is *true* for the whisper.cpp path.
+- **Engine/data-flow disclosure:** show, per engine, where audio goes. Local (whisper.cpp) →
+  "never leaves your device." Groq (cloud) → "audio is sent to Groq for transcription" with a link.
+  Mirror Wispr's candor about the cloud round-trip rather than hiding it.
+- **A local-storage control mirroring Wispr's three-way:** *Keep history / Auto-delete after 24h /
+  Never store transcripts.* Demod owns the whole store locally so this is straightforward and it is
+  the single most recognisable Wispr privacy affordance.
+- **"Delete all history / data" button** with confirm — the local analogue of Wispr's erasure
+  workflow. Cheap for Demod (drop the local store).
+- **"Don't store audio" toggle** — Wispr streams audio and does not persist it locally; Demod
+  should let users opt out of retaining the raw WAV after transcription.
+- If/when Demod adds context-awareness or an AI-cleanup stage, gate each behind its own **default-
+  sensible toggle** here (accessibility-text style reading default-off for a privacy-first app,
+  unlike Wispr), and copy the verbatim guardrail **"password field contents are never read."**
+- Keep dictionary/snippets explicitly OUT of any "delete my data" wipe, matching Wispr's "these are
+  your productivity assets, not dictation content" framing.
+
+## TAB 3 — NOTES / "Scratchpad" (Wispr's transcription scratch surface)
+
+**(a) What Wispr does** — verified from
+https://docs.wisprflow.ai/articles/9618237082-using-the-scratchpad-to-save-and-edit-notes
+(desktop is the relevant target; iOS differs)
+
+- **Scratchpad (Beta)** is a **floating notes window** with a **multi-tab rich-text editor**, a
+  **sidebar**, and **image attachments**. It is a first-class sidebar page ("Scratchpad") *and* an
+  optional Flow Bar button.
+- **Core behaviors:** notes **auto-save as you type**, **sync across signed-in devices**, and
+  **stay available offline** (save locally, sync on reconnect). Notes list is **newest-first**;
+  custom sorting is not offered.
+- **Voice dictation into a note:** tap the mic → **live waveform** while speaking → **green
+  checkmark inserts** the transcribed text at the cursor (or replaces the selection), **X cancels**;
+  a spinner shows during transcription and X stays available so you can still discard.
+- **Multi-tab:** open several notes side-by-side as tabs; **drag to reorder**, **drag a tab out to
+  detach into its own window**.
+- **Version history:** a **Clock button** shows past versions of a note; each version is icon-tagged
+  by origin — **typed, dictated, or transformed** (AI-rewritten). This is the standout feature —
+  provenance per revision.
+- **Formatting toolbar:** Bold, Italic, Underline, Inline code, Bullet list, Numbered list,
+  **Checklist**, Blockquote, **Toggle**, Link, **Table**.
+- **Organizing:** **Pin** (pinned notes stick to top with a pin icon), **Search by title + content
+  with matches highlighted**.
+- **Images (desktop only):** paste/drop **PNG, JPEG, WebP, GIF**; each image **≤ 5 MB**, **≤ 10
+  images per note**; oversized auto-resized or rejected. **No image support on iOS.**
+- **Open behavior (Settings → System → Scratchpad):** **Resume last note (default) / Open in new
+  tab / Open last active pinned note.**
+- **Access:** a bindable **Open Scratchpad** hotkey (Settings → General → Shortcuts; the shortcut
+  pill is always shown on the Notes page even when unbound) and an **"Add to Flow Bar"** toggle
+  (the Flow Bar button is **hidden by default**).
+- **Sync-status UI:** progress indicator during sync; **cloud-checkmark = synced, slashed-cloud =
+  offline**; pull-to-sync or a manual circular-arrow refresh; icons only appear when Cloud Sync is
+  on. (These are the exact affordances Demod would fake/hide since it is local-only.)
+
+**(b) Sources:** Scratchpad article above; app-nav page (sidebar "Scratchpad: voice notes with
+cloud sync"); iOS Notes https://docs.wisprflow.ai/articles/3529886556-using-notes-in-wispr-flow-for-ios
+
+**(c) Concrete build for Demod's Notes/Transcription tab.** The brief calls this Demod's
+transcription/"Notes" tab; Wispr's Scratchpad is the exact reference. Recommended contents:
+
+- A **local notes surface** where dictation lands and can be edited before/instead of pasting into
+  another app. This is *also* Demod's paste-failure fallback — Wispr literally routes failed pastes
+  into the Scratchpad ("your transcript is safe"). Wire Demod's focus-guard miss to "dropped into
+  Notes" the same way.
+- **Dictate-into-note** with the same interaction grammar: mic → **live waveform** (Demod already
+  has the waveform overlay) → **checkmark inserts at cursor / X discards**, insert-at-cursor or
+  replace-selection.
+- **Auto-save**, **newest-first list**, **pin**, and **search over title + body with highlight**.
+  All local, all cheap.
+- **Version history tagged by origin (typed vs dictated vs AI-cleaned)** is the single most
+  differentiating idea worth stealing — and it's especially apt for Demod because it makes the
+  local pipeline's stages visible.
+- A **formatting toolbar** if Demod wants rich text (Checklist + Table are the two that users miss
+  most), or keep it **markdown + preview** like Wispr's iOS Notes (lighter to build in a WebView).
+- **Bindable "Open Notes" hotkey** so users capture a thought without leaving their active app —
+  Wispr treats this as a best practice.
+- **Skip the cloud/sync UI entirely.** Demod is local; do not fake sync icons. The honest version is
+  "saved locally" with no cloud-checkmark theater. This is a place Demod is *simpler and better*.
+- Images are a nice-to-have (paste screenshot inline, ≤5 MB, cap per note) but lower priority than
+  the dictate → edit → history loop.
 
 ---
 
@@ -29,7 +225,7 @@ UNVERIFIED section at the bottom, not asserted in the body.
 
 ### A1. Custom dictionary / vocabulary — it does BOTH bias and post-correct
 
-This is the question that matters most for Typr, and the answer is that Wispr runs two distinct
+This is the question that matters most for Demod, and the answer is that Wispr runs two distinct
 mechanisms under one "Dictionary" UI:
 
 | Mechanism | What it does | Stage |
@@ -166,10 +362,12 @@ Source: https://docs.wisprflow.ai/articles/5096240724-navigating-the-wispr-flow-
 - **Insights tab** (v1.5.55): usage stats, communication profile, team leaderboard.
 - Dedicated hotkeys for **Paste last transcript** (`Shift+Alt+Z` on Windows) and
   **Copy last transcript** (`Shift+Alt+X` on Windows).
-- **Local storage policy is a user setting**: Store data locally (default) / Auto-delete local
-  data every 24 hours / Never store data locally.
+- **Local storage policy is a user setting** (desktop, separate from Cloud Sync): Store data
+  locally (default) / Auto-delete local data every 24 hours / Never store data locally. Confirmed
+  2026-07-21 (no longer search-summarised); the two stricter options also clear local Polish and
+  Instruct/command history. See the rewritten two-control privacy model in the 2026-07-21 UPDATE
+  (Tab 2) above and the corrected section D below.
   https://docs.wisprflow.ai/articles/4709791908-understanding-privacy-mode-and-cloud-sync
-  [search-summarised]
 
 ### A8. Languages, code-switching, accents
 
@@ -210,7 +408,7 @@ Gesture model: hold = push-to-talk; **double-press the push-to-talk key to lock 
 press hands-free shortcut again or click the ✓ in the Flow Bar to stop.
 https://docs.wisprflow.ai/articles/6391241694-use-flow-hands-free
 
-Binding validation rules (directly relevant to Typr's rebinder):
+Binding validation rules (directly relevant to Demod's rebinder):
 - 3 keys or fewer.
 - At least one modifier, or a valid mouse button.
 - Cannot mix left/right versions of the same modifier.
@@ -249,10 +447,10 @@ https://wisprflow.ai/whats-new
 
 ### Paste target and focus handling — the honest version
 
-Wispr has the same fundamental problem Typr has, and they solve it with *recovery*, not prevention.
+Wispr has the same fundamental problem Demod has, and they solve it with *recovery*, not prevention.
 Source: https://docs.wisprflow.ai/articles/7971211038-fix-text-not-pasting-after-dictation
 
-- Their first instruction is the same guard Typr uses: "Before dictating, click inside a text
+- Their first instruction is the same guard Demod uses: "Before dictating, click inside a text
   field — Flow needs an active text field to receive text."
 - **Paste-failure is a first-class state**: "If Flow shows a paste-failed notification or opens the
   Scratchpad, your transcript is safe." You then edit in the Scratchpad and copy, or hit
@@ -331,11 +529,16 @@ This is the single most important strategic fact in this document.
 
 Source: https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq
 
-Their privacy story is therefore a *policy* story, not an *architecture* story: Privacy Mode (no
-training on your data) + Cloud Sync off = "Zero Data Retention".
+Their privacy story is therefore a *policy* story, not an *architecture* story. **UPDATED
+2026-07-21:** the single Privacy Mode toggle described here is now legacy — Wispr split it into two
+independent controls, **Privacy Mode** (governs *training*) and **Private Cloud Sync** (governs
+*server-side storage*). "Zero Data Retention" is now the specific combination *Privacy Mode ON +
+Cloud Sync OFF*. Dictionary + snippets sync server-side even under ZDR. Full current model, truth
+table, and the confirmed Context-Awareness accessibility/OCR default split are in the 2026-07-21
+UPDATE → Tab 2 near the top of this file.
 https://docs.wisprflow.ai/articles/4709791908-understanding-privacy-mode-and-cloud-sync
 
-**Typr's local whisper.cpp engine is a capability Wispr Flow does not have at any price.**
+**Demod's local whisper.cpp engine is a capability Wispr Flow does not have at any price.**
 
 ---
 
@@ -353,7 +556,7 @@ https://docs.wisprflow.ai/articles/4709791908-understanding-privacy-mode-and-clo
   **VoiceInk**, **VoiceDash**, **Spokenly**.
 - Practical observation for a rename discussion: "whisper"-derived names are extremely crowded and
   additionally read as "wraps OpenAI Whisper", which undersells anything with its own pipeline.
-  "Typr" sits in the *typing* metaphor rather than the *voice* metaphor, which is differentiated in
+  "Demod" sits in the *typing* metaphor rather than the *voice* metaphor, which is differentiated in
   this field — every competitor named above is in the voice/water cluster. No trademark opinion is
   offered here; that needs a lawyer, not a research doc.
 
@@ -363,7 +566,7 @@ https://docs.wisprflow.ai/articles/4709791908-understanding-privacy-mode-and-clo
 
 Legend: ✅ yes · ❌ no · ⚠️ partial · ❓ unverified
 
-| Feature | Wispr Flow | SuperWhisper | Typr (today) | Source |
+| Feature | Wispr Flow | SuperWhisper | Demod (today) | Source |
 |---|---|---|---|---|
 | **Windows support** | ✅ | ✅ (with documented gaps) | ✅ (Windows-first) | [WF pricing](https://wisprflow.ai/pricing) · [SW Windows](https://superwhisper.com/docs/get-started/windows) |
 | **Local/offline transcription** | ❌ cloud only | ✅ Parakeet V2/V3, Whisper Ultra V3, on-device by default | ✅ whisper.cpp small/medium/large-v3 | [WF security FAQ](https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq) · [SW models](https://superwhisper.com/models) |
@@ -421,13 +624,13 @@ Legend: ✅ yes · ❌ no · ⚠️ partial · ❓ unverified
 FluidVoice is the closest open-source reference implementation and is worth reading: it has
 Command Mode, a Write Mode for inline rewriting, per-app prompt configuration, a live-preview
 overlay, and audio history with budget controls. Note it is **GPLv3 as of 2026-02-23** (Apache 2.0
-before that), so it is a design reference, not a code source, for a proprietary Typr.
+before that), so it is a design reference, not a code source, for a proprietary Demod.
 
 ---
 
-## What Typr is missing
+## What Demod is missing
 
-Typr today, verified from `src-tauri/src/settings.rs` and the command surface in `main.rs`:
+Demod today, verified from `src-tauri/src/settings.rs` and the command surface in `main.rs`:
 mic selection, local whisper.cpp / Groq cloud engine toggle, whisper model selection
 (small/medium/large-v3), Groq model selection (whisper-large-v3 / turbo), dictionary as a single
 initial-prompt string, language selection, hotkey rebinding, tap/hold/auto gesture modes,
@@ -438,9 +641,9 @@ launch at startup, Groq key test, plus a tray menu with "Hide for 1 hour" and "P
 Grouped gaps, each tied to evidence rather than taste:
 
 **1. The dictionary is only half a dictionary.**
-Typr passes `dictionary` as an initial prompt, which biases recognition. Wispr runs vocabulary
+Demod passes `dictionary` as an initial prompt, which biases recognition. Wispr runs vocabulary
 bias *and* deterministic replacement rules, because bias alone does not reliably fix a name the
-model keeps getting wrong. Typr has no replacement rules, no per-entry structure at all (it is one
+model keeps getting wrong. Demod has no replacement rules, no per-entry structure at all (it is one
 free-text blob, not a list), no starring/priority, no auto-add-on-correction, no CSV import.
 Evidence: https://docs.wisprflow.ai/articles/4052411709-teach-flow-your-words-with-the-dictionary
 and SuperWhisper's identical two-mechanism split at
@@ -448,18 +651,18 @@ https://superwhisper.com/docs/get-started/interface-vocabulary — two independe
 converged on the same design, which is the strongest signal in this document.
 
 **2. No transcript history.** Every competitor has one. Wispr's is searchable and day-grouped with
-retry and undo. Typr keeps only `get_last_transcript()` in memory. This is also a *reliability*
+retry and undo. Demod keeps only `get_last_transcript()` in memory. This is also a *reliability*
 feature, not just convenience: it is what makes a failed paste recoverable.
 
 **3. No failure recovery path.** Wispr's paste-failure handling — "your transcript is safe", open
-the Scratchpad, or `Alt+Shift+Z` to re-paste — means a focus miss costs you nothing. Typr's focus
+the Scratchpad, or `Alt+Shift+Z` to re-paste — means a focus miss costs you nothing. Demod's focus
 guard prevents the bad paste but the transcript still has nowhere to go.
 https://docs.wisprflow.ai/articles/7971211038-fix-text-not-pasting-after-dictation
 
 **4. No retry on transcription failure.** Wispr saves the audio ("Your audio is saved for
 retrying") and retries without duplicating history.
 
-**5. Formatting is two booleans where the market has a spectrum.** Typr has `capitalize` and
+**5. Formatting is two booleans where the market has a spectrum.** Demod has `capitalize` and
 `ensurePunctuation`. Wispr has context-aware capitalisation (it lowercases mid-sentence to match
 surrounding text), filler removal, list detection, and a four-level intensity dial.
 
@@ -474,7 +677,7 @@ default on Windows, and uses it for both accuracy and style.
 
 **9. Overlay is display-only.** Wispr's shows the waveform *and* clickable Stop/Cancel controls, a
 right-click menu (history, paste last, mic, languages), a language picker, and edge-docking with
-re-orientation. Typr's pill shows the waveform and nothing actionable.
+re-orientation. Demod's pill shows the waveform and nothing actionable.
 
 **10. Hotkey model is narrower.** No mouse-button binding, no rebindable cancel, no separate
 paste-last/copy-last hotkeys, no documented validation rules (Wispr publishes theirs: ≤3 keys, ≥1
@@ -482,19 +685,19 @@ modifier, no Caps Lock, no duplicates).
 
 **11. Single-language selection.** Wispr multi-selects to *narrow* the auto-detect candidate set —
 "Selecting only the languages you actually use narrows the set Flow chooses from, which improves
-accuracy." Typr's single-value `language` field cannot express that.
+accuracy." Demod's single-value `language` field cannot express that.
 
 **12. No snippets.** Voice-triggered text expansion is a Wispr feature on the free tier.
 
 **13. Mic handling is a single pin,** where Wispr ranks preferred devices and handles clamshell/
-dock transitions, and surfaces six distinct mic error states. Typr has honest error states already,
+dock transitions, and surfaces six distinct mic error states. Demod has honest error states already,
 but a fixed device pick breaks when a headset disconnects.
 
 ---
 
-## Prioritised backlog for Typr, with evidence
+## Prioritised backlog for Demod, with evidence
 
-Ordered by (user-visible value) ÷ (effort), given Typr is a Windows Tauri app with a local engine.
+Ordered by (user-visible value) ÷ (effort), given Demod is a Windows Tauri app with a local engine.
 
 ### P0 — do these first
 
@@ -502,28 +705,28 @@ Ordered by (user-visible value) ÷ (effort), given Typr is a Windows Tauri app w
 Evidence: universal across Wispr, SuperWhisper, MacWhisper, FluidVoice. Wispr groups by day with
 search and per-entry copy
 (https://docs.wisprflow.ai/articles/5096240724-navigating-the-wispr-flow-app-desktop-ios-and-android).
-Unlocks items 2 and 3 below. Typr already has the transcript in hand; this is mostly storage + UI.
+Unlocks items 2 and 3 below. Demod already has the transcript in hand; this is mostly storage + UI.
 
 **2. Never lose a transcript: paste-failure recovery.**
 Evidence: Wispr treats paste failure as a normal state with a guaranteed-safe transcript and a
 `Alt+Shift+Z` re-paste hotkey
 (https://docs.wisprflow.ai/articles/7971211038-fix-text-not-pasting-after-dictation).
-Concretely for Typr: when the focus guard blocks the paste, keep the text, notify, and offer a
-paste-last hotkey. Typr already has `menu_paste_last` in the tray — **promote it to a bindable
+Concretely for Demod: when the focus guard blocks the paste, keep the text, notify, and offer a
+paste-last hotkey. Demod already has `menu_paste_last` in the tray — **promote it to a bindable
 hotkey**. This is a small change with outsized reliability payoff.
 
 **3. Replacement rules in the dictionary, and make the dictionary a list.**
 Evidence: the strongest signal in this research — Wispr and SuperWhisper independently implement
 the same two-mechanism split (bias + deterministic post-correct)
 (https://docs.wisprflow.ai/articles/4052411709-teach-flow-your-words-with-the-dictionary ,
-https://superwhisper.com/docs/get-started/interface-vocabulary). Typr's single prompt-blob cannot
+https://superwhisper.com/docs/get-started/interface-vocabulary). Demod's single prompt-blob cannot
 express "when you hear X, write Y". Post-correct is also cheap and deterministic — it works
 identically on the local and cloud engines, which prompt-biasing does not.
 
 **4. Retry on failure, with the audio preserved.**
 Evidence: "Your audio is saved for retrying", and retry reprocesses without a duplicate history
 entry (https://docs.wisprflow.ai/articles/4984532368-fix-taking-longer-than-usual-and-transcription-errors).
-Especially valuable for Typr because the Groq path can fail on network alone.
+Especially valuable for Demod because the Groq path can fail on network alone.
 
 ### P1 — high value, moderate effort
 
@@ -532,14 +735,14 @@ Evidence: Wispr's recording bubble carries Cancel/Stop, and hands-free stops wit
 with an ✗; the idle bubble right-click menu holds Hide for 1 hour, Settings, Microphone, Languages,
 Transcript history, Paste last transcript
 (https://docs.wisprflow.ai/articles/5096240724-navigating-the-wispr-flow-app-desktop-ios-and-android).
-Typr already has all of those actions somewhere — this is surfacing, not building.
+Demod already has all of those actions somewhere — this is surfacing, not building.
 
 **6. Optional AI cleanup stage with an intensity dial (None/Light/Medium/High) and an undo.**
 Evidence: Wispr replaced a binary Smart Formatting toggle with exactly this four-level control in
 v1.5.55 (https://wisprflow.ai/whats-new), keeps it on by default, and provides "Undo AI edit" plus
 a View Diff shortcut. Note the design lesson: they shipped a *dial*, not a toggle, and they kept
-the raw text recoverable. For Typr this can route through the existing Groq key, so no new
-dependency, and it must be off-able for the fully-local users who are Typr's actual differentiator.
+the raw text recoverable. For Demod this can route through the existing Groq key, so no new
+dependency, and it must be off-able for the fully-local users who are Demod's actual differentiator.
 
 **7. Multi-select language list rather than a single language.**
 Evidence: "Selecting only the languages you actually use narrows the set Flow chooses from, which
@@ -551,7 +754,7 @@ Evidence: Wispr's full binding table and Mouse Flow
 (https://docs.wisprflow.ai/articles/2612050838-supported-unsupported-keyboard-hotkey-shortcuts ,
 https://wisprflow.ai/whats-new); SuperWhisper's click-vs-hold dual mouse behaviour
 (https://superwhisper.com/docs/get-started/settings-shortcuts). Also adopt their published
-validation rules — Typr's `validate_hotkey` should reject Caps Lock and duplicate bindings.
+validation rules — Demod's `validate_hotkey` should reject Caps Lock and duplicate bindings.
 
 **9. Filler-word removal and list detection in the formatting layer.**
 Evidence: Wispr's Smart Formatting does both, and both are named on the marketing page as
@@ -588,15 +791,15 @@ its UI with the dictionary list from #3.
 - **Mic auto-select with ranked preference** instead of a single pinned device, so a disconnected
   headset does not break dictation (Wispr v1.5.751, https://wisprflow.ai/whats-new).
 - **Edge docking for the pill with vertical re-orientation** (Wispr, July 9 2026, same source).
-  Typr already persists `overlayX`/`overlayY`; docking is an increment.
+  Demod already persists `overlayX`/`overlayY`; docking is an increment.
 - **Session cap with a pre-warning.** Wispr caps desktop at 20 min and warns at 19
-  (https://docs.wisprflow.ai/articles/6391241694-use-flow-hands-free). Typr has no cap, so a stuck
+  (https://docs.wisprflow.ai/articles/6391241694-use-flow-hands-free). Demod has no cap, so a stuck
   hold-gesture can record unbounded.
 
 ### Strategic note on positioning
 
 Wispr Flow is **cloud-only and cannot offer local transcription at any price tier**
-(https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq). Typr's whisper.cpp
+(https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq). Demod's whisper.cpp
 path is a genuine capability gap in the market leader, and the same is true versus Aqua Voice and
 Willow. The apps that *do* have strong local support (SuperWhisper, MacWhisper, FluidVoice) are
 Mac-first — MacWhisper and FluidVoice are Mac-only today, and SuperWhisper's Windows build has
@@ -615,10 +818,12 @@ Listed rather than guessed.
 1. **Which ASR models/vendors Wispr uses.** The security FAQ explicitly discloses no vendor names
    or model architectures. They mention a "unified speech model" (June 24, 2026 changelog) but do
    not identify it.
-2. **The Context Awareness accessibility-vs-OCR default split.** The dedicated article
-   (`/articles/5020906721-how-does-context-awareness-work`) returned HTTP 404 on direct fetch; the
-   accessibility-on-by-default / Screen-OCR-off-by-default detail comes from a search engine's
-   summary of that page only.
+2. ~~**The Context Awareness accessibility-vs-OCR default split.**~~ **RESOLVED 2026-07-21.** The
+   security & compliance FAQ (fetched HTTP 200 via Apify) states it plainly: **Accessibility-text
+   context is DEFAULT ON; Screen OCR is DEFAULT OFF / opt-in**, screenshots flow only when both are
+   on, Screen OCR captures the display under the mouse cursor, and turning accessibility-text off
+   force-disables Screen OCR. No longer an unknown.
+   https://docs.wisprflow.ai/articles/3467817258-security-and-compliance-faq
 3. **Whether the desktop Flow Bar shows any elapsed-time indicator.** A timer is documented for iOS
    (v1.62) but I found no desktop equivalent. I did not confirm its *absence* — no doc states there
    is none.
@@ -702,6 +907,13 @@ Listed rather than guessed.
 - Linux/WSL/terminal: `/articles/6478598909-using-flow-with-linux-wsl-and-terminal-applications`
 - Remote desktop: `/articles/7336156466-use-flow-with-remote-desktops-citrix-rdp-vdi`
 - Variable Recognition: `/articles/8554805225-variable-recognition`
+- Scratchpad / Notes (read 2026-07-21): `/articles/9618237082-using-the-scratchpad-to-save-and-edit-notes`
+- iOS Notes (read 2026-07-21): `/articles/3529886556-using-notes-in-wispr-flow-for-ios`
+- Pinning notes: `/articles/9879490397-pinning-notes-in-the-notes-hub-and-scratchpad-sidebar`
+- Private Cloud Sync & data-sharing prefs: `/articles/9609615338-private-cloud-sync-and-data-sharing-preferences-in-wispr-flow`
+
+**Wispr Trust Center / data controls** (referenced by the help pages, not fetched):
+- https://trust.wispr.ai/ · https://wisprflow.ai/data-controls · https://wisprflow.ai/privacy · https://admin.wisprflow.ai
 
 **SuperWhisper**
 - https://superwhisper.com/models · https://superwhisper.com/cli
@@ -714,7 +926,7 @@ Listed rather than guessed.
 - https://github.com/altic-dev/FluidVoice
 - Third-party pricing aggregators (lower confidence): https://spokenly.app/blog/superwhisper-pricing · https://www.getvoibe.com/resources/superwhisper-pricing/ · https://www.getvoibe.com/resources/aqua-voice-pricing/ · https://www.getvoibe.com/resources/macwhisper-pricing/
 
-**Typr's own code (for the gap analysis)**
-- `C:/Users/guruv/tools/typr/src-tauri/src/settings.rs` — the full settings struct
-- `C:/Users/guruv/tools/typr/src-tauri/src/main.rs` — the `#[tauri::command]` surface
+**Demod's own code (for the gap analysis)**
+- `C:/Users/guruv/tools/demod/src-tauri/src/settings.rs` — the full settings struct
+- `C:/Users/guruv/tools/demod/src-tauri/src/main.rs` — the `#[tauri::command]` surface
 </content>

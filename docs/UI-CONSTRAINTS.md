@@ -1,4 +1,4 @@
-# UI Constraints for Typr
+# UI Constraints for Demod
 
 > Every rule here exists because it was violated in this codebase and caught. The
 > incident is named so the rule is arguable rather than dogma. Agents building or

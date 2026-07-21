@@ -236,6 +236,17 @@ fn on_click() {
     let Some(app) = APP.get() else { return };
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
+        // Only the IDLE pill opens the app. During recording/transcribing this
+        // same low-level click almost certainly landed on the in-pill Cancel
+        // button (the hook can't see which DOM element was hit), so popping the
+        // settings window then would be wrong. Gate on the recorder state.
+        let is_idle = handle
+            .try_state::<crate::AppState>()
+            .map(|s| s.recorder.get_state() == demod_lib::recorder::RecordingState::Ready)
+            .unwrap_or(true);
+        if !is_idle {
+            return;
+        }
         if let Some(main) = handle.get_webview_window("main") {
             let _ = main.show();
             let _ = main.set_focus();

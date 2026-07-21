@@ -1,11 +1,12 @@
 # Demod
 
-> **Formerly "Typr", briefly mis-shipped as "DMOD". The product name is `Demod`.**
-> The checkout directory is still `tools/typr` and the bundle identifier is still
-> `com.typr.app`. Both are deliberate holdovers, not stragglers: Tauri derives the
-> settings path from the identifier, so changing it orphans an existing install's
-> saved config (engine, API key, hotkey). Renaming either is a migration, not a
-> find-and-replace. Everything user-visible says Demod.
+> **Formerly "Typr". Renamed to `Demod` on 2026-07-20** — directory, bundle
+> identifier, and on-disk user data all moved together, so the rename is complete
+> rather than cosmetic: checkout is `tools/demod`, the identifier is
+> `com.demod.app`, and the pre-existing `com.typr.app` config + whisper model were
+> migrated into it. Tauri derives the settings path from the identifier, so any
+> FURTHER identifier change would orphan the saved config (engine, API key, hotkey)
+> and the 487 MB model unless those directories are moved again in lockstep.
 > Naming rationale and the rejected alternatives: `tasks/research/naming.md`.
 
 Demod (a clipping of "demodulator" — the circuit that recovers information from a

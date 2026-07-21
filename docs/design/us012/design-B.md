@@ -1,4 +1,4 @@
-# US-012 Design B — "Typr-Native Minimal"
+# US-012 Design B — "Demod-Native Minimal"
 
 **Angle:** don't import a design system (Linear/indigo-accent look the current scaffold half-copied) — derive every value from `src/overlay.html`, the one surface TJ already approved. Same near-black layers (`rgba(20,20,20,.85/.95)`), same hairline border (`rgba(255,255,255,.14)`), same lozenge/pill radii (`999px`), same 150ms opacity+transform grammar, same system font stack. No indigo. The accent *is* white-on-black, with the overlay's status colors (`#e0c341` / `#4a9ff5` / `#6fe08c`) reserved for state, not decoration. Fewest sections that honestly cover every existing setting: **6** (General, Recording, Overlay, Models, History, Privacy) — matches the acceptance criteria and the research doc's planned sidebar exactly, dropping nothing, inventing nothing.
 
@@ -492,7 +492,7 @@ Every control that isn't backed by a real Rust path today gets a `.gate-badge` n
 | Hotkey (General) | no capture-flow command exists | `<kbd>` shown read-only + `.gate-badge`: "Fixed — no rebind flow yet" |
 | Dock position (Overlay) | no reposition command; position is drag-persisted only | plain text row + `.gate-badge`: "Drag the pill to move it" (informational, not an apology) |
 | History section | `list_recordings`/`delete_recording` don't exist | whole section renders one `.empty-state` card: "History isn't wired up yet — recordings aren't being saved to a log. Coming in a later story." No fake list, no fake delete buttons. |
-| Privacy section | no retention/local-storage commands exist | one `.empty-state` card: "Everything Typr does already stays on this device — nothing is uploaded except audio you explicitly send to Groq Cloud when that engine is selected. Retention controls aren't built yet." (This is a true statement given the current engine toggle, not a placeholder promise.) |
+| Privacy section | no retention/local-storage commands exist | one `.empty-state` card: "Everything Demod does already stays on this device — nothing is uploaded except audio you explicitly send to Groq Cloud when that engine is selected. Retention controls aren't built yet." (This is a true statement given the current engine toggle, not a placeholder promise.) |
 | Groq API key field | real (`groqApiKey` round-trips today) | no badge — it works |
 | Download button | real (`download_model` + `download-progress` event) | no badge — it works |
 

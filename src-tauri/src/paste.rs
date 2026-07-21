@@ -55,7 +55,7 @@ pub struct PasteTarget {
 fn log_paste_decision(reason: &str) {
     use std::io::Write;
     let Some(dir) = dirs::config_dir() else { return };
-    let path = dir.join("com.typr.app").join("paste.log");
+    let path = dir.join("com.demod.app").join("paste.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "[paste] {}", reason);
     }

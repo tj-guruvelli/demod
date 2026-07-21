@@ -8,7 +8,7 @@
 > simply unverified; there is no other test catching it.
 
 Execute the full list during the dogfood window immediately after deploy, with the
-old exe still present as `typr.exe.bak`. For every scenario, dictate a distinctive
+old exe still present as `demod.exe.bak`. For every scenario, dictate a distinctive
 phrase so a misplaced paste is unmissable.
 
 ## Scenarios (each = one dictation cycle)
@@ -17,8 +17,8 @@ phrase so a misplaced paste is unmissable.
 2. THE historical bug: start dictation in Notepad, while "Transcribing..." shows,
    Alt-Tab to a browser text field. EXPECTED: NO paste into the browser; clipboard
    holds the transcript; overlay shows paste-fallback state.
-3. [AUTOMATED - typr-e2e/focus-guard-check.mjs, 7/7 passing] Council scenario
-   (First Principles): start dictation, and while transcribing, OPEN TYPR'S OWN
+3. [AUTOMATED - demod-e2e/focus-guard-check.mjs, 7/7 passing] Council scenario
+   (First Principles): start dictation, and while transcribing, OPEN DEMOD'S OWN
    SETTINGS WINDOW. EXPECTED: no paste into the settings window's controls.
    The harness produces a REAL transcript using the Windows speech synthesizer
    through the speakers, which this machine's mic array picks up. The
@@ -29,9 +29,9 @@ phrase so a misplaced paste is unmissable.
    real config is captured and restored, verified afterwards.
 4. Focus change DURING recording (before stop): start in Notepad, Alt-Tab mid-speech,
    Alt-Tab back, stop. EXPECTED: paste lands in Notepad (focus at stop == focus at paste).
-5. [AUTOMATED - typr-e2e/gesture-check.mjs, 10/10] Push-to-talk: a 900ms HOLD of the
+5. [AUTOMATED - demod-e2e/gesture-check.mjs, 10/10] Push-to-talk: a 900ms HOLD of the
    real global hotkey starts, and release completes the dictation.
-6. [AUTOMATED - typr-e2e/gesture-check.mjs] Tap-toggle: a short tap starts recording
+6. [AUTOMATED - demod-e2e/gesture-check.mjs] Tap-toggle: a short tap starts recording
    and a second short tap stops it, via the real global hotkey.
 7. Esc cancel: start, speak, Esc within a beat. EXPECTED: discard, no paste anywhere,
    confirm-discard state behaves per US-006.
@@ -53,7 +53,7 @@ phrase so a misplaced paste is unmissable.
     starts a new recording normally. Before the fix, one failure left the recorder
     stuck in Transcribing and every later press was rejected silently, so the app
     had to be restarted.
-    Covered by `typr-e2e/recovery-check.mjs` (8/8 passing): it forces a real
+    Covered by `demod-e2e/recovery-check.mjs` (8/8 passing): it forces a real
     failure by selecting the local engine with an undownloaded model - never
     touching the Groq key - then asserts the state returns to Ready AND that a
     new recording can still start, and restores the original settings
@@ -67,10 +67,10 @@ phrase so a misplaced paste is unmissable.
 This script runs as part of the dogfood window in [DEPLOY.md](./DEPLOY.md) section 4.
 Full deploy/restore commands (PowerShell) live there; summary:
 
-- Kill running `typr.exe`, CONFIRM the process is gone, copy the new exe in with the
-  old one kept as `typr.exe.bak`, relaunch, run the CDP smoke test, then this script.
-- Restore one-liner (memorize the location, `C:\Users\guruv\AppData\Local\Typr\`):
-  stop the new exe, copy `typr.exe.bak` back over `typr.exe`, relaunch.
+- Kill running `demod.exe`, CONFIRM the process is gone, copy the new exe in with the
+  old one kept as `demod.exe.bak`, relaunch, run the CDP smoke test, then this script.
+- Restore one-liner (memorize the location, `C:\Users\guruv\AppData\Local\Demod\`):
+  stop the new exe, copy `demod.exe.bak` back over `demod.exe`, relaunch.
 - Bad-exe DETECTION = any scenario above failing, or hotkey dead, or sidecar not up
   within 10s of launch.
 - If any of scenarios 2, 3, 5, 6, or 12 fails: restore `.bak` IMMEDIATELY, file the
@@ -138,7 +138,7 @@ Left for a human, and genuinely minor now: 4, 8, 10 and 12 are timing or
 target-app variations of checks that already pass, and 9 needs an elevated
 window, which needs UAC. 14 (a failed settings save) cannot be forced by hand.
 
-If a paste ever does go wrong in real use, com.typr.app/paste.log now names
+If a paste ever does go wrong in real use, com.demod.app/paste.log now names
 which branch fired and why - no target captured, refocus succeeded, or refocus
 refused by the OS.
 

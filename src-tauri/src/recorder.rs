@@ -385,6 +385,13 @@ impl Recorder {
         // there instead of where they dictated is the bug this guards
         // against.
         let paste_target = capture_foreground_window();
+        // Capture the recording length for the history entry BEFORE the timer
+        // is cleared just below. Instant is monotonic; we only take the delta.
+        let recording_duration_ms = self
+            .recording_started_at
+            .lock()
+            .unwrap()
+            .map(|t| t.elapsed().as_millis() as u64);
         // Leaving Recording: the Esc cancel guard no longer applies.
         *self.recording_started_at.lock().unwrap() = None;
         *self.cancel_guard.lock().unwrap() = CancelGuard::None;
@@ -493,14 +500,42 @@ impl Recorder {
 
         // Clean up text
         // Post-processing is now the user's choice rather than hardcoded.
-        let cleaned = cleanup_text(
-            &raw_text,
+        // Filler removal (local, instant) on the raw text BEFORE cleanup, so
+        // capitalization/punctuation apply to the already-trimmed result.
+        let pre_clean = if settings.remove_fillers {
+            crate::cleanup::remove_fillers(&raw_text)
+        } else {
+            raw_text.clone()
+        };
+        let mut cleaned = cleanup_text(
+            &pre_clean,
             &CleanupOptions {
                 capitalize: settings.capitalize,
                 ensure_punctuation: settings.ensure_punctuation,
                 trailing_space: settings.trailing_space,
             },
         );
+        // AI auto-edits (Wispr-style "clean output"): a cloud LLM pass that fixes
+        // self-corrections and formatting. Cloud-only + best-effort - on any
+        // failure/timeout we keep the locally-cleaned text and never fail the
+        // dictation over it. Adds ~0.5-1s, which is why it is a user toggle.
+        if settings.auto_edits
+            && settings.engine == "cloud"
+            && !settings.groq_api_key.trim().is_empty()
+            && !cleaned.is_empty()
+        {
+            match transcribe_groq::groq_auto_edit(&settings.groq_api_key, &cleaned).await {
+                Ok(edited) if !edited.trim().is_empty() => {
+                    cleaned = edited;
+                    // The LLM strips a trailing space; re-honour the setting.
+                    if settings.trailing_space && !cleaned.ends_with(' ') {
+                        cleaned.push(' ');
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("[Demod] auto-edit skipped: {}", e),
+            }
+        }
 
         // Auto-paste into the window that was focused when capture stopped
         // (US-007). None = nothing to paste, so there is no outcome to report.
@@ -508,6 +543,33 @@ impl Recorder {
             None
         } else {
             *self.last_transcript.lock().unwrap() = Some(cleaned.clone());
+            // Local-only transcript history (ON by default; gated by
+            // settings.history_enabled). Best-effort: a history write must never
+            // fail or delay a dictation, so errors are logged and swallowed.
+            // Nothing here leaves the machine. Serialized via history::with_lock
+            // so a concurrent delete/clear command cannot race this append.
+            if settings.history_enabled {
+                let model = if settings.engine == "cloud" {
+                    settings.cloud_model.clone()
+                } else {
+                    settings.whisper_model.clone()
+                };
+                let entry_text = cleaned.clone();
+                let engine = settings.engine.clone();
+                let retention_days = settings.history_retention_days;
+                crate::history::with_lock(|| {
+                    let mut store = crate::history::HistoryStore::load(app_dir);
+                    store.append(entry_text, engine, model, recording_duration_ms);
+                    // Enforce the Privacy "auto-delete after N days" retention on
+                    // every write (0 = keep forever). Also applied at startup.
+                    if retention_days > 0 {
+                        store.prune_older_than(retention_days as u128 * 86_400_000);
+                    }
+                    if let Err(e) = store.save(app_dir) {
+                        eprintln!("[Demod] history save failed: {}", e);
+                    }
+                });
+            }
             if settings.auto_paste {
                 Some(paste_text(&cleaned, paste_target))
             } else {

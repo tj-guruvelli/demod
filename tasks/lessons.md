@@ -1,4 +1,35 @@
 
+## 2026-07-21 — A rename isn't done until the identity is pinned AND committed
+
+TJ: "all my changes got wiped out ... models re-download ... why isn't this
+persisting?" Nothing was wiped. The Typr→Demod rename left the bundle identifier
+`com.typr.app` COMMITTED while the working tree had `com.demod.app`. Tauri derives
+the app-data dir from that identity, so builds alternated identities: the 487MB
+model got downloaded under `com.demod.app`, the installed build ran as
+`com.typr.app`, looked in the wrong dir, found no model → "download a model" on
+every launch, and read/wrote a different config.json → "settings reset". The UI
+edits were never lost either — they were an uncommitted 244-line working-tree diff.
+
+Rule: after a product rename, (1) pin the identity to ONE value in every place it
+appears (tauri.conf.json identifier, get_app_dir, applog), (2) add a one-time
+migration that copies old-identity user data forward (copy, never move/overwrite),
+and (3) COMMIT immediately. An uncommitted rename that flip-flops per build is
+indistinguishable from data loss to the user. "Is it committed?" is the first
+question when a desktop app "forgets" state, not the last.
+
+## 2026-07-21 — In an offline / AV-gutted build, don't reach for a new crate
+
+Adding `tauri-plugin-single-instance` made `cargo check` try to update the crates.io
+index, which died on the AV TLS interception (`CRYPT_E_NO_REVOCATION_CHECK`). The
+repo builds ONLY from cached deps; any new crate needs a network fetch that this
+machine's HTTPS scanning blocks. The fix was to implement the same feature with a
+dependency already present — a Windows named mutex via the `windows` crate (just
+had to enable its `Win32_Security` feature, which is a recompile, not a download).
+
+Rule: before adding a dependency here, check whether an existing dep already does
+it. New crates are a network operation and the network is hostile. Enabling a
+feature on an already-vendored crate is free; pulling a new crate is a gamble.
+
 ## 2026-07-20 — Research the named product instead of inferring it
 
 TJ said "make it as good as Wispr Flow" on day one. I built an entire settings

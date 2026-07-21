@@ -44,7 +44,7 @@ fn rotated_path(app_dir: &Path) -> PathBuf {
 pub fn default_app_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.typr.app")
+        .join("com.demod.app")
 }
 
 /// Convenience wrapper over `log_event` for call sites without an app_dir

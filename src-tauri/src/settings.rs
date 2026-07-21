@@ -38,10 +38,12 @@ pub struct Settings {
     /// toward these spellings. Wispr calls this a dictionary.
     #[serde(default)]
     pub dictionary: String,
-    /// Groq model id. Was hardcoded to whisper-large-v3-turbo, a distilled
-    /// build that trades real accuracy for speed - the likely cause of mangled
-    /// words. Defaults to full whisper-large-v3 for accuracy; turbo remains
-    /// selectable for anyone who wants the latency instead.
+    /// Groq model id. Defaults to whisper-large-v3-turbo (TJ 2026-07-21:
+    /// "real-time no latency ... the highest free model ... possible with the
+    /// turbo model") - Groq runs turbo at real-time speed on its free tier.
+    /// NOTE: an earlier pass moved OFF turbo to full whisper-large-v3 over a
+    /// concern that turbo mangled some words. Full large-v3 stays one click away
+    /// in the Models tab if accuracy ever matters more than latency.
     #[serde(rename = "cloudModel", default = "default_cloud_model")]
     pub cloud_model: String,
     /// Paste the transcript into the focused app (true, the default) or only
@@ -74,6 +76,32 @@ pub struct Settings {
     /// changes in save_settings.
     #[serde(rename = "overlayVisible", default = "default_true")]
     pub overlay_visible: bool,
+    /// Silence gate: audio at or below this level reads as silence (flat
+    /// overlay line). Lower = picks up quieter speech.
+    #[serde(rename = "voiceSensitivity", default = "default_voice_sensitivity")]
+    pub voice_sensitivity: f32,
+    /// Below this level counts as a whisper (wave animation); at/above is
+    /// normal talking (bars).
+    #[serde(rename = "whisperThreshold", default = "default_whisper_threshold")]
+    pub whisper_threshold: f32,
+    /// Save a LOCAL-ONLY history of transcripts (History tab). Off means no
+    /// transcript text is ever persisted (the app's original privacy stance).
+    /// Default on per the user's request; nothing written here ever leaves the
+    /// machine - it sits in history.json beside config.json.
+    #[serde(rename = "historyEnabled", default = "default_true")]
+    pub history_enabled: bool,
+    /// Auto-delete history entries older than this many days. 0 = keep forever.
+    /// Drives the Privacy tab retention control.
+    #[serde(rename = "historyRetentionDays", default)]
+    pub history_retention_days: u32,
+    /// Remove vocalized filler words (um, uh, er, ...) from every transcript.
+    /// Local and instant (no network); on by default.
+    #[serde(rename = "removeFillers", default = "default_true")]
+    pub remove_fillers: bool,
+    /// AI auto-edits (Wispr-style "clean output"): a cloud LLM pass that fixes
+    /// self-corrections and formatting. Cloud-only, adds ~0.5-1s; on by default.
+    #[serde(rename = "autoEdits", default = "default_true")]
+    pub auto_edits: bool,
 }
 
 fn default_true() -> bool {
@@ -85,7 +113,10 @@ fn default_microphone() -> String {
 }
 
 fn default_engine() -> String {
-    "local".to_string()
+    // Cloud (Groq) by default: real-time transcription with no local model
+    // download. Falls back gracefully to a "add your Groq key" notice if no key
+    // is set, and local whisper stays selectable for offline use.
+    "cloud".to_string()
 }
 
 fn default_whisper_model() -> String {
@@ -105,21 +136,29 @@ fn default_language() -> String {
 }
 
 fn default_cloud_model() -> String {
-    "whisper-large-v3".to_string()
+    "whisper-large-v3-turbo".to_string()
+}
+
+fn default_voice_sensitivity() -> f32 {
+    0.035
+}
+
+fn default_whisper_threshold() -> f32 {
+    0.5
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             microphone: "default".to_string(),
-            engine: "local".to_string(),
+            engine: "cloud".to_string(),
             whisper_model: "small".to_string(),
             groq_api_key: String::new(),
             recording_mode: "auto".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             language: "en".to_string(),
             dictionary: String::new(),
-            cloud_model: "whisper-large-v3".to_string(),
+            cloud_model: "whisper-large-v3-turbo".to_string(),
             auto_paste: true,
             trailing_space: false,
             capitalize: true,
@@ -128,6 +167,12 @@ impl Default for Settings {
             overlay_y: None,
             interaction_sounds: true,
             overlay_visible: true,
+            voice_sensitivity: 0.035,
+            whisper_threshold: 0.5,
+            history_enabled: true,
+            history_retention_days: 0,
+            remove_fillers: true,
+            auto_edits: true,
         }
     }
 }
@@ -186,7 +231,7 @@ mod tests {
     fn test_default_settings() {
         let settings = Settings::default();
         assert_eq!(settings.microphone, "default");
-        assert_eq!(settings.engine, "local");
+        assert_eq!(settings.engine, "cloud");
         assert_eq!(settings.whisper_model, "small");
         assert_eq!(settings.groq_api_key, "");
         assert_eq!(settings.recording_mode, "auto");
@@ -195,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load() {
-        let dir = temp_dir().join("typr_test_settings");
+        let dir = temp_dir().join("demod_test_settings");
         let _ = fs::remove_dir_all(&dir);
 
         let mut settings = Settings::default();
@@ -213,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_load_missing_file_returns_default() {
-        let dir = temp_dir().join("typr_test_missing");
+        let dir = temp_dir().join("demod_test_missing");
         let _ = fs::remove_dir_all(&dir);
         let settings = Settings::load(&dir);
         assert_eq!(settings, Settings::default());
@@ -222,7 +267,7 @@ mod tests {
     #[test]
     fn test_load_pre_overlay_pos_config_gives_none() {
         // Config written before US-002 has no overlayX/overlayY keys.
-        let dir = temp_dir().join("typr_test_no_overlay_pos");
+        let dir = temp_dir().join("demod_test_no_overlay_pos");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -242,7 +287,7 @@ mod tests {
     #[test]
     fn test_load_pre_us004_config_gives_true_defaults() {
         // Config written before US-004 has no interactionSounds/overlayVisible keys.
-        let dir = temp_dir().join("typr_test_no_sounds_visible");
+        let dir = temp_dir().join("demod_test_no_sounds_visible");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -263,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_interaction_sounds_and_overlay_visible_roundtrip() {
-        let dir = temp_dir().join("typr_test_sounds_visible_roundtrip");
+        let dir = temp_dir().join("demod_test_sounds_visible_roundtrip");
         let _ = fs::remove_dir_all(&dir);
 
         let mut settings = Settings::default();
@@ -281,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_overlay_pos_roundtrip() {
-        let dir = temp_dir().join("typr_test_overlay_pos");
+        let dir = temp_dir().join("demod_test_overlay_pos");
         let _ = fs::remove_dir_all(&dir);
 
         let mut settings = Settings::default();
@@ -299,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_load_corrupt_json_returns_default() {
-        let dir = temp_dir().join("typr_test_corrupt");
+        let dir = temp_dir().join("demod_test_corrupt");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("config.json"), "not json").unwrap();
@@ -316,7 +361,7 @@ mod tests {
     fn test_load_corrupt_json_preserves_file_for_recovery() {
         // The user's API key must be recoverable even when this build can't
         // parse the file - falling back to defaults must not destroy it.
-        let dir = temp_dir().join("typr_test_corrupt_backup");
+        let dir = temp_dir().join("demod_test_corrupt_backup");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("config.json"), r#"{"groqApiKey": "unterminated"#).unwrap();
@@ -338,7 +383,7 @@ mod tests {
         // falling back to Settings::default() (which would discard, e.g., a
         // groqApiKey that WAS present under a typo'd key elsewhere in a real
         // partial write).
-        let dir = temp_dir().join("typr_test_partial_original_fields");
+        let dir = temp_dir().join("demod_test_partial_original_fields");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -349,7 +394,7 @@ mod tests {
 
         let settings = Settings::load(&dir);
         assert_eq!(settings.microphone, "default");
-        assert_eq!(settings.engine, "local");
+        assert_eq!(settings.engine, "cloud");
         assert_eq!(settings.whisper_model, "small");
         assert_eq!(settings.groq_api_key, "");
         assert_eq!(settings.recording_mode, "auto");
@@ -361,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_save_is_atomic_no_tmp_file_left_behind() {
-        let dir = temp_dir().join("typr_test_atomic_save");
+        let dir = temp_dir().join("demod_test_atomic_save");
         let _ = fs::remove_dir_all(&dir);
 
         let settings = Settings::default();
@@ -378,7 +423,7 @@ mod tests {
         // Guards the atomic write path itself: after a second save, loading
         // must reflect only the SECOND settings object, not a merge/partial
         // leftover of the first.
-        let dir = temp_dir().join("typr_test_atomic_save_overwrite");
+        let dir = temp_dir().join("demod_test_atomic_save_overwrite");
         let _ = fs::remove_dir_all(&dir);
 
         let mut first = Settings::default();

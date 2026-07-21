@@ -15,6 +15,6 @@
 # Capping jobs shrinks that burst. It does NOT fix the underlying defect, which
 # is in kernel-mode code we do not own - a userspace build cannot corrupt kernel
 # memory on its own. The real fix is AVG exclusions for build trees (or removing
-# AVG) plus a clean memtest pass. See typr/tasks/lessons.md.
+# AVG) plus a clean memtest pass. See demod/tasks/lessons.md.
 [build]
 jobs = 12

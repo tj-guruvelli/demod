@@ -22,10 +22,20 @@
         --color-neon-cyan: #2ee6ff;
         --color-neon-white: #f5f0ff;
 
-        /* Idle pill: dark midnight purple body, neon violet outline that
-           glows so it reads against any desktop background behind it. */
-        --pill-idle-bg: rgba(15, 7, 28, 0.94);
-        --pill-idle-bg-hover: rgba(21, 10, 38, 0.97);
+        /* Idle pill: BLACK body, neon violet outline only (TJ 2026-07-20 -
+           "the pill should be black, only the outline is purple"). The body was
+           a dark midnight purple; now it is near-pure black so the sole colour
+           is the violet edge + glow. Alpha kept below 1 so the desktop faintly
+           shows through, which is what makes it read as a floating glass dock
+           rather than a solid black slab. */
+        --pill-idle-bg: rgba(0, 0, 0, 0.9);
+        --pill-idle-bg-hover: rgba(0, 0, 0, 0.94);
+        /* Resting-bar fill (TJ 2026-07-21: "no neon outline glow at rest - just
+           a long flat bar, deep purple"). The rest state is now a SOLID deep-
+           purple bar with NO box-shadow/glow and NO pulse. The neon violet edge
+           + the logo are the HOVER reward only. Alpha < 1 keeps the faint
+           floating-glass see-through. */
+        --pill-idle-bar-color: rgba(74, 32, 145, 0.92);
         --pill-idle-border: rgba(177, 77, 255, 0.9);
         --pill-idle-glow-inner: rgba(177, 77, 255, 0.5);
         --pill-idle-glow-outer: rgba(255, 47, 214, 0.35);
@@ -41,20 +51,32 @@
         --pill-idle-glow-inner-hover: rgba(177, 77, 255, 0.26);
         --pill-idle-glow-outer-hover: rgba(255, 47, 214, 0.16);
         --pill-hover-pulse-duration: 0.9s;
-        --pill-hover-scale: 1.12;
-        --pill-hover-scale-peak: 1.19;
 
-        /* Recording pill: DEEP PURPLE, not red (TJ 2026-07-20). He asked for a
-           purple dock that goes "red or neon when recording" and a deep-purple
-           waveform. Those two cannot both be true on a red body: measured
-           against the old red bg, deep purple #6a0dad is 1.33:1 and deep violet
-           #7c3aed is 2.16:1, i.e. invisible (4.5:1 is the floor). Taking the
-           "or neon" branch instead - the body stays deep purple and the LIVE cue
-           is carried by the neon violet edge, glow and trace, which measures
-           4.80:1 against this bg. Recording is still unmistakable at a glance,
-           just violet-hot rather than red. */
-        --pill-recording-bg: rgba(24, 10, 44, 0.94);
-        --pill-recording-bg-hover: rgba(30, 13, 54, 0.97);
+        /* Idle bar geometry (TJ 2026-07-20: "same height as the Wispr Flow
+           interface dock ... let's try 3px first"). At rest the pill is a hair-
+           thin neon line; on hover it expands to the RECORDING pill's exact
+           box, so hovering previews the shape recording will take.
+           Expanded size must stay inside the Rust hit rect (PILL_HIT_W 200 x
+           PILL_HIT_H 48 in src-tauri/src/pill_hittest.rs) or the cursor leaves
+           the interactive region at the pill's own edge and the hover flickers.
+           180x36 leaves 10px/6px of margin. If you grow these, grow the Rust
+           consts first. */
+        /* TJ 2026-07-21: "increase the width and decrease the height" - a
+           longer, flatter resting bar. Was 64x5. */
+        --pill-idle-bar-w: 116px;
+        --pill-idle-bar-h: 4px;
+        --pill-idle-expand-w: 180px;
+        --pill-idle-expand-h: 36px;
+
+        /* Recording pill: BLACK body, neon violet edge/glow/trace carry the
+           LIVE cue (TJ 2026-07-20 - "the pill should be black, only the outline
+           is purple"). Earlier notes debated deep-purple vs red for the BODY;
+           that debate is moot now that the body is black. Contrast only gets
+           better: the violet edge measures well above the 4.5:1 floor against
+           black, and the cyan/violet waveform separates cleanly on it. Slightly
+           more opaque than idle so recording reads as more solid/present. */
+        --pill-recording-bg: rgba(0, 0, 0, 0.96);
+        --pill-recording-bg-hover: rgba(0, 0, 0, 0.97);
         --pill-recording-border: rgba(177, 77, 255, 0.95);
         --pill-recording-glow: rgba(177, 77, 255, 0.65);
         --pill-recording-glow-hover: rgba(177, 77, 255, 0.7);
@@ -68,6 +90,10 @@
            token, so changing the wave color later is a one-line edit. */
         --wave-stroke: var(--color-neon-violet);
         --wave-glow-color: rgba(177, 77, 255, 0.6);
+        /* The faint bar lift (TJ 2026-07-20). Kept as its own token, not a
+           tweak of --wave-glow-color, so the old full-strength value stays
+           available and the two cannot be confused for each other. */
+        --wave-glow-faint: rgba(177, 77, 255, 0.2);
 
         /* App mark inside the idle pill. Mirrors --accent / --logo-color in
            src/style.css (#f23df5) EXACTLY, so the floating pill, the settings
@@ -150,19 +176,59 @@
          stays unobtrusive on top of other apps, and it brightens on hover
          using transform/opacity only - never layout - so the fixed-size
          overlay window is untouched. */
+      /* The layer itself is an INVISIBLE hover catcher, sized to the expanded
+         pill - not to the 3px bar. A 3px-tall hover target is unhittable in
+         practice, and it would also make the pill collapse the instant it
+         expanded (cursor ends up outside the 3px strip), so hover would
+         oscillate. Keeping the catcher at the expanded size means the box the
+         cursor is in never changes. All paint moves to ::before, a pseudo-
+         element - so this stays ONE element and `data-tauri-drag-region` plus
+         the Rust hit test are unaffected. */
       .state-idle {
-        width: 30px;
-        height: 30px;
-        border-radius: 9px;
+        width: var(--pill-idle-expand-w);
+        height: var(--pill-idle-expand-h);
+        border-radius: 999px;
         position: absolute; /* .layer already sets this; kept explicit so the
                                 hotkey tooltip below can anchor off this box */
-        background: var(--pill-idle-bg);
-        border-color: var(--pill-idle-border);
-        box-shadow:
-          0 0 8px 1px var(--pill-idle-glow-inner),
-          0 0 16px 3px var(--pill-idle-glow-outer);
-        animation: idle-pulse var(--pill-idle-pulse-duration) ease-in-out infinite;
+        background: none;
+        border-color: transparent;
+        box-shadow: none;
       }
+      /* The visible pill. Collapsed to a hair-thin neon line at rest: at 3px
+         tall a 1px border top+bottom would eat the whole box, so the bar is
+         drawn as a filled neon line with no border, and the border only
+         appears once it has expanded enough to hold one. */
+      .state-idle::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: var(--pill-idle-bar-w);
+        height: var(--pill-idle-bar-h);
+        border-radius: 999px;
+        /* Flat deep-purple bar, NO neon outline/glow at rest (TJ 2026-07-21:
+           "the logo should not display the neon outline border glow ... just a
+           long bar, deep purple"). The violet edge + glow are the HOVER reward
+           only, added back in the :hover rule below. */
+        background: var(--pill-idle-bar-color);
+        border: 1px solid transparent;
+        box-shadow: none;
+        transition:
+          width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+          height 180ms cubic-bezier(0.22, 1, 0.36, 1),
+          background 180ms ease-out,
+          border-color 180ms ease-out;
+        /* animation intentionally NOT here - see the gated rule below. */
+      }
+      /* Pulse only while actually idle. Putting `animation` on the base
+         ::before rule repainted the box-shadow every frame in EVERY state
+         (listening/processing/etc), just invisibly behind an opacity:0 layer -
+         wasted compositor work. Gating on the state confines it to when the bar
+         is on screen. */
+      /* No resting animation any more (TJ 2026-07-21). The bar sits perfectly
+         flat and still - no breathing glow. The idle-pulse @keyframes below is
+         kept only as documentation of the retired effect. */
       /* Border/glow "alive" pulse - CSS var-driven so the duration is a
          single source of truth in :root. Disabled entirely under reduced
          motion (see the media query near the bottom of this stylesheet). */
@@ -178,10 +244,17 @@
             0 0 22px 5px var(--pill-idle-glow-outer-peak);
         }
       }
+      /* Hidden at rest - nothing legible fits in a 3px bar. The mark is the
+         reward for hovering. z-index lifts it above ::before, which is painted
+         after the element's own background but below its children only once
+         they establish a stacking position. */
       .state-idle .logo {
         width: 18px;
         height: 18px;
-        opacity: 0.85;
+        opacity: 0;
+        position: relative;
+        z-index: 1;
+        transition: opacity 140ms ease-out;
       }
       /* Reverted to an inline SVG on 2026-07-20. It had been a base64 raster
          PNG, which silently froze the OLD pre-rename mark into this file: the
@@ -200,18 +273,41 @@
          window corner mid-animation. Declaring `animation` here also replaces
          idle-pulse, which is what lets the dimmer static box-shadow below
          actually take effect instead of being overwritten by the breathe. */
+      /* Pulses the glow, NOT a transform scale (changed 2026-07-20). The old
+         hover pulse scaled the pill up to 1.19x. Once hover expands the pill to
+         180px that would sweep it out to 214px - past the 200px Rust hit rect -
+         so the cursor would fall outside the interactive region at the pill's
+         own edge, collapsing it, re-entering, and flickering forever. Glow has
+         no such coupling because box-shadow is not hit-tested. */
       @keyframes hover-pulse {
-        0%, 100% { transform: translate(-50%, -50%) scale(var(--pill-hover-scale)); }
-        50%      { transform: translate(-50%, -50%) scale(var(--pill-hover-scale-peak)); }
+        0%, 100% {
+          box-shadow:
+            0 0 6px 1px var(--pill-idle-glow-inner-hover),
+            0 0 12px 2px var(--pill-idle-glow-outer-hover);
+        }
+        50% {
+          box-shadow:
+            0 0 9px 2px var(--pill-idle-glow-inner-hover),
+            0 0 18px 4px var(--pill-idle-glow-outer-hover);
+        }
       }
-      #mic[data-state="idle"] .state-idle:hover {
-        opacity: 1;
+      /* Hover expands the bar into the recording pill's exact box, so the
+         gesture previews the shape recording will take. This animates
+         width/height rather than a transform: a transform cannot turn a 64x5
+         bar into a 180x36 lozenge without smearing the border-radius and the
+         mark (non-uniform ~2.8x by 7x). The usual objection to animating layout
+         does not apply here - this element is absolutely positioned, alone, and
+         centered inside a fixed-size overlay window, so nothing reflows and the
+         window never resizes. */
+      #mic[data-state="idle"] .state-idle:hover::before {
+        width: var(--pill-idle-expand-w);
+        height: var(--pill-idle-expand-h);
         background: var(--pill-idle-bg-hover);
-        transform: translate(-50%, -50%) scale(var(--pill-hover-scale));
-        box-shadow:
-          0 0 6px 1px var(--pill-idle-glow-inner-hover),
-          0 0 12px 2px var(--pill-idle-glow-outer-hover);
-        animation: hover-pulse var(--pill-hover-pulse-duration) ease-in-out infinite;
+        border-color: var(--pill-idle-border);
+        /* Hover reveals the pill: a SINGLE static violet edge-glow, no looping
+           pulse (TJ 2026-07-21 wants the glow gone from the resting bar; on
+           hover a quiet static halo just lifts the dock off the desktop). */
+        box-shadow: 0 0 10px 1px var(--pill-idle-glow-inner-hover);
       }
       #mic[data-state="idle"] .state-idle:hover .logo {
         opacity: 1;
@@ -247,6 +343,13 @@
          slightly larger, transform/opacity only. */
       .layer:hover {
         background: rgba(20, 20, 20, 0.95);
+      }
+      /* Idle opts OUT of the generic hover darkening. Its layer is a
+         transparent hit catcher sized to the EXPANDED pill, so letting the
+         generic rule fill it would paint a 180x36 slab on hover instead of the
+         bar growing into one. Idle's hover paint lives entirely on ::before. */
+      #mic[data-state="idle"] .state-idle:hover {
+        background: none;
       }
       /* Listening must stay red even on hover - overrides the generic
          .layer:hover darkening above (loaded later, so it wins by source
@@ -331,13 +434,56 @@
       .state-listening {
         width: 180px;
         height: 36px;
+        gap: 6px;
         background: var(--pill-recording-bg);
         border-color: var(--pill-recording-border);
         box-shadow: 0 0 10px 1px var(--pill-recording-glow);
       }
+      /* Narrowed from 160 to 128 to make room for the X-circle cancel button
+         WITHOUT growing the pill - the recording pill stays the same 180x36 box
+         (TJ 2026-07-21: "these sizes should not change ... same rectangular
+         pill"). Keep CSS_W in the renderer JS in sync with this width. */
       .state-listening canvas.waveform {
-        width: 160px;
+        width: 128px;
         height: 28px;
+      }
+      /* X-circle CANCEL (TJ 2026-07-21): discard an in-progress recording so it
+         is never transcribed or pasted anywhere. This is the ONE interactive
+         child of the pill: `.layer * { pointer-events: none }` keeps the OS
+         drag-region hit test on the layer, so this child re-enables
+         pointer-events to be clickable. Magenta reads as "stop", distinct from
+         the violet waveform. */
+      .state-listening .cancel-btn {
+        pointer-events: auto;
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+      .state-listening .cancel-btn svg {
+        width: 18px;
+        height: 18px;
+      }
+      .state-listening .cancel-btn svg circle {
+        fill: none;
+        stroke: var(--color-neon-magenta);
+        stroke-width: 2;
+      }
+      .state-listening .cancel-btn svg line {
+        stroke: var(--color-neon-magenta);
+        stroke-width: 2;
+        stroke-linecap: round;
+      }
+      .state-listening .cancel-btn:hover svg circle,
+      .state-listening .cancel-btn:hover svg line {
+        stroke: var(--color-neon-white);
       }
 
       /* Processing: three dots pulsing with staggered opacity. */
@@ -432,18 +578,22 @@
         .state-listening canvas.waveform {
           opacity: 0.9;
         }
-        .state-idle {
+        /* Processing dots pulse infinitely otherwise - gate it like every other
+           state so reduced-motion users get a static readout. */
+        #mic[data-state="processing"] .state-processing .dot {
           animation: none;
-          box-shadow:
-            0 0 8px 1px var(--pill-idle-glow-inner),
-            0 0 16px 3px var(--pill-idle-glow-outer);
+          opacity: 0.6;
         }
-        /* The hover pulse is motion too. Keep the dimmer hover glow and the
-           static scale-up (both are affordances, not motion), drop only the
-           looping animation. */
-        #mic[data-state="idle"] .state-idle:hover {
+        .state-idle::before {
           animation: none;
-          transform: translate(-50%, -50%) scale(var(--pill-hover-scale));
+          /* Rest is flat + glowless now, so reduced-motion matches the default
+             look; only the expand transition is dropped so it snaps. */
+          box-shadow: none;
+          transition: none;
+        }
+        /* Keep the quiet static hover halo (an affordance, not motion). */
+        #mic[data-state="idle"] .state-idle:hover::before {
+          box-shadow: 0 0 10px 1px var(--pill-idle-glow-inner-hover);
         }
       }
     </style>
@@ -467,6 +617,18 @@
       </div>
       <div class="layer state-listening" data-tauri-drag-region>
         <canvas class="waveform" width="320" height="56"></canvas>
+        <button
+          class="cancel-btn"
+          type="button"
+          aria-label="Cancel recording"
+          title="Cancel — discard this recording"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="8.5" y1="8.5" x2="15.5" y2="15.5" />
+            <line x1="15.5" y1="8.5" x2="8.5" y2="15.5" />
+          </svg>
+        </button>
         <div class="status-dot"></div>
       </div>
       <div class="layer state-processing" data-tauri-drag-region>
@@ -528,13 +690,34 @@
       //
       // Do NOT reintroduce an idle amplitude floor. "Flat" must mean flat.
       (() => {
-        const SILENCE_GATE = 0.035;  // curved level at/below this is TRUE silence -> exactly 0 -> a straight line
+        // Silence gate + whisper/talk boundary are user-tunable (Settings ->
+        // "Voice detection"). Defaults match the shipped values and are
+        // overwritten from get_settings (voiceSensitivity / whisperThreshold)
+        // at load and at each recording start, so nothing here is hardcoded for
+        // real - the app reads the user's numbers.
+        let silenceGate = 0.035;       // curved level at/below this is TRUE silence -> exactly 0 -> a straight line
+        let whisperThreshold = 0.5;    // loudness (0..1) below = whisper (wave), above = talking (bars)
         const PEAK_FLOOR = 0.02;     // adaptive-peak floor - keeps quiet-room mic noise from being amplified into fake motion
         const PEAK_RELEASE_MS = 450; // TJ 2026-07-20: "it doesn't return back to normal" - settle to baseline in ~400-600ms, then hold
         const LEVEL_CURVE = 0.42;    // exponent <1 = aggressive early rise, so quiet speech still deflects the trace a lot
         const PX_PER_SAMPLE = 2;     // ~1 sample per 2 CSS px of pill width
-        const SCROLL_PX_PER_S = 96;  // trace travel speed, left-scrolling like a real ECG strip
-        const UNDERSHOOT = 0.3;      // fraction of each deflection drawn below the baseline - reads as a heartbeat, not a bar chart
+        const SCROLL_PX_PER_S = 96;  // sample-history travel speed across the meter
+
+        // --- whisper (wave) vs talking (bars) mode selection ---
+        // The peak-normalized 'curved' value re-references each utterance's own
+        // peak, so it CANNOT tell a whisper from loud speech (a whisper's own
+        // peak normalizes back to ~1). Mode selection therefore uses the RAW
+        // absolute level, smoothed, scaled to 0..1 by a fixed talk reference,
+        // and compared to whisperThreshold with a hysteresis dead-band so it
+        // does not flicker at the boundary.
+        const TALK_REF = 0.15;          // raw RMS mapped to loudness 1.0 (a normal speaking level)
+        const MODE_SMOOTH_ALPHA = 0.15; // per-frame smoothing of the raw level driving the mode
+        const MODE_HYST = 0.08;         // dead-band on each side of whisperThreshold
+        const WAVE_CYCLES = 3.0;        // sine periods drawn across the whisper wave
+        const WAVE_SPEED = 6.0;         // rad/s the whisper wave travels
+        // (UNDERSHOOT removed: it drew each deflection partly below the baseline
+        // for the old heartbeat stroke. Bars are centered on the midline now, so
+        // there was nothing reading it.)
 
         const mic = document.getElementById('mic');
         const canvas = document.querySelector('.state-listening canvas.waveform');
@@ -546,7 +729,7 @@
         // store is sized from devicePixelRatio so the stroke stays crisp on
         // hi-DPI displays instead of blurring the old statically-baked 2x
         // canvas attributes.
-        const CSS_W = 160, CSS_H = 28;
+        const CSS_W = 128, CSS_H = 28;  // CSS_W must match .state-listening canvas.waveform width in the CSS above
         let dpr = 1;
         const fitCanvasToDPR = () => {
           if (!canvas || !ctx) return;
@@ -562,6 +745,9 @@
         let peakEnv = PEAK_FLOOR;  // slow-moving adaptive peak (instant attack, seconds-scale release)
         let rafId = 0;
         let lastNow = 0;
+        let mode = 'wave';         // 'wave' (whisper) | 'bars' (talking); starts quiet
+        let smoothRaw = 0;         // smoothed RAW level, only for the mode decision
+        let wavePhase = 0;         // travelling phase for the whisper wave
 
         // ECG strip: one deflection magnitude (0..1) per sample column, oldest
         // at index 0 (left edge). Zero-filled, so a fresh start and a silent
@@ -594,14 +780,19 @@
           const v = rootStyle.getPropertyValue(name).trim();
           return v || fallback;
         };
-        const strokeColor = cssVar('--wave-stroke', '#2ee6ff');
-        const glowColor = cssVar('--wave-glow-color', 'rgba(46, 230, 255, 0.6)');
+        const strokeColor = cssVar('--wave-stroke', '#b14dff'); // matches --color-neon-violet, the real token value
+        // Only the faint lift is read by the renderer now. The old full-strength
+        // --wave-glow-color const was removed as dead code (its cyan fallback was
+        // itself a stale wrong hue); the token stays in :root as documentation of
+        // the pre-"faint" value. See the glow note in drawFrame before changing.
+        const glowFaint = cssVar('--wave-glow-faint', 'rgba(177, 77, 255, 0.2)');
+        const GLOW_BLUR = 2.5;
 
         // Deflection for one column. Below the gate this returns EXACTLY 0 so
         // the trace is a true straight line at silence - not a small residual
         // wobble from mic self-noise, which is what "it's not a straight line"
         // has meant every time.
-        const deflection = (curved) => (curved <= SILENCE_GATE ? 0 : (curved - SILENCE_GATE) / (1 - SILENCE_GATE));
+        const deflection = (curved) => (curved <= silenceGate ? 0 : (curved - silenceGate) / (1 - silenceGate));
 
         // Turns a raw 0..1-ish RMS level into the normalized 0..1 "curved"
         // drive value used for both amplitude and wavelength - a single
@@ -641,16 +832,34 @@
           sampleCarry = advance - whole;
           if (!reduceMotion) pushSamples(whole, d);
 
+          // Whisper(wave) vs talking(bars), from the RAW absolute level - see
+          // the TALK_REF note above for why 'curved' can't be used here.
+          const absRaw = Math.max(lvl, 0);
+          smoothRaw += (absRaw - smoothRaw) * MODE_SMOOTH_ALPHA;
+          const loudness = Math.min(1, smoothRaw / TALK_REF);
+          if (mode === 'bars' && loudness < whisperThreshold - MODE_HYST) mode = 'wave';
+          else if (mode === 'wave' && loudness > whisperThreshold + MODE_HYST) mode = 'bars';
+          if (!reduceMotion) wavePhase += (dtMs / 1000) * WAVE_SPEED;
+
           ctx.clearRect(0, 0, CSS_W, CSS_H);
-          ctx.lineWidth = 2.4;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          // NO shadowBlur. The stroke was already a single flat colour, but a
-          // blurred glow around it fades from opaque line to transparent edge,
-          // which is indistinguishable from a gradient at 30px tall - TJ read
-          // it as one twice ("why is it gradient?", then "still a gradient
-          // color and not a solid deep color"). A solid line means solid: one
-          // colour, hard edges, no halo. Do not reintroduce shadowBlur here.
+          // (Removed lineWidth/lineCap/lineJoin here: they configured the old
+          // stroked ECG trace. The renderer now fills bars with roundRect+fill()
+          // and never calls stroke(), so that line state was dead every frame.)
+          // Glow: allowed again, but only barely (TJ 2026-07-20: "it should
+          // only be very faint like the lowest level"). This REVERSES the older
+          // "no shadowBlur, ever" rule that used to sit here, so the history
+          // matters or someone will delete this as a regression: a glow was
+          // twice rejected for reading as a gradient ("why is it gradient?",
+          // then "still a gradient color and not a solid deep color"). What
+          // made it read that way was a WIDE, STRONG bloom fading the bar out
+          // to a soft edge. At blur 2.5 with ~0.2 alpha the bar keeps a hard
+          // edge and the halo only lifts it off the pill background, which is
+          // the effect he approved from the comparison panel.
+          //
+          // So the constraint is not "no glow" but "no bloom big enough to
+          // soften the bar's edge". If it ever reads as a gradient again, cut
+          // --wave-glow-faint's alpha or the blur radius; do not just delete
+          // the glow and re-add the absolute ban.
           // BARS, not a stroked trace (TJ 2026-07-20, final call: "use the sound
           // bars that adjust height based on voice sensitivity"). The ECG line
           // and the travelling sine before it were both rejected on look. A bar
@@ -664,11 +873,55 @@
           // shows amplitude over a short rolling window - genuinely derived,
           // and it reads like a level meter rather than a bar chart of nothing.
           ctx.fillStyle = strokeColor;
+          ctx.shadowColor = glowFaint;
+          ctx.shadowBlur = GLOW_BLUR;
 
-          const BAR_COUNT = 14;
-          const slotW = CSS_W / BAR_COUNT;
-          const barW = slotW * 0.52;              // gap between bars is the rest
-          const radius = Math.min(barW / 2, 2.2);
+          // WHISPER: a smooth travelling sine whose amplitude is modulated by
+          // the real mic envelope (samples[]). It travels (phase scrolls with
+          // wall-clock time) AND is mic-driven, so it is neither a dead in-place
+          // sine (rejected before) nor invented motion. Envelope 0 -> a flat
+          // line at silence. Talking falls through to the bars below.
+          if (mode === 'wave') {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            for (let x = 0; x <= CSS_W; x += 2) {
+              const frac = x / CSS_W;
+              const si = Math.min(SAMPLE_COUNT - 1, Math.round(frac * (SAMPLE_COUNT - 1)));
+              const env = reduceMotion ? d : samples[si];
+              const y = mid + Math.sin(frac * WAVE_CYCLES * Math.PI * 2 + wavePhase) * env * ampScale;
+              if (x === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            return;
+          }
+
+          // Bar/gap proportions measured 2026-07-20 from Wispr Flow's own
+          // assets, not chosen by eye: Wispr's live web demo ships
+          // `.wd_pill-bar { width: 2px; gap: 2px; border-radius: 1000px }`, and
+          // their marketing render measures 3-4px bars with 4-5px gaps. Ours
+          // were ~5.9px, which read as fat blocks rather than a meter.
+          //
+          // Count/pitch are a faithful port of the comparison panel TJ picked
+          // (2026-07-20 screenshot): 3px bars on a ~12px pitch, i.e. gaps ~3x
+          // the bar width. That panel was drawn 640px wide; at this canvas's
+          // real 160px the same pitch is 13 bars, NOT the ~42 it showed. The
+          // thin-bar-wide-gap RATIO is what he liked, so the ratio ports, not
+          // the count - and Wispr's own count varies by source anyway (10 in
+          // the demo, 18 in the render), so it is not load-bearing.
+          //
+          // NOTE: do NOT also copy their motion. Wispr's bars rise in place,
+          // staggered by CSS nth-child delays - decorative animation that is
+          // audio-independent. Ours are driven by real RMS, and the per-bar
+          // history read below is what keeps them from pumping in unison
+          // honestly rather than by faking offsets.
+          const BAR_COUNT = 10;                   // 10 fits the 128px canvas at the same ~12px pitch the 160px canvas held with 13
+          const slotW = CSS_W / BAR_COUNT;        // ~12.8px pitch
+          const barW = slotW * 0.25;              // ~3px; the rest is gap
+          const radius = barW / 2;                // fully rounded caps
           const MIN_H = 2;                        // silence floor: a row of dots, still a flat "nothing happening" read
 
           for (let b = 0; b < BAR_COUNT; b++) {
@@ -722,14 +975,30 @@
           rafId = requestAnimationFrame(frame);
         };
 
+        // Pull the user's silence gate + whisper threshold from settings.
+        // Called at load and again at each recording start, so a change made in
+        // the Settings window applies to the next dictation without a restart.
+        const refreshThresholds = () => {
+          const t = window.__TAURI__;
+          if (!t || !t.core || typeof t.core.invoke !== 'function') return;
+          t.core.invoke('get_settings').then((s) => {
+            if (s && typeof s.voiceSensitivity === 'number') silenceGate = s.voiceSensitivity;
+            if (s && typeof s.whisperThreshold === 'number') whisperThreshold = s.whisperThreshold;
+          }).catch(() => {});
+        };
+
         const startLoop = () => {
           if (rafId) return;
+          refreshThresholds();
           level = 0;
           lastNow = 0;
           lastDrawNow = 0;
           sampleCarry = 0;
           samples.fill(0); // open on a straight line, never on stale peaks from the previous recording
           peakEnv = PEAK_FLOOR;
+          mode = 'wave';
+          smoothRaw = 0;
+          wavePhase = 0;
           rafId = requestAnimationFrame(frame);
         };
 
@@ -741,6 +1010,9 @@
           sampleCarry = 0;
           samples.fill(0);
           peakEnv = PEAK_FLOOR;
+          mode = 'wave';
+          smoothRaw = 0;
+          wavePhase = 0;
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
 
@@ -758,12 +1030,40 @@
             level = e.payload;
           });
         }
+        // Load the user's thresholds once at startup too (startLoop refreshes
+        // them again at each recording), so the very first dictation already
+        // honours the settings rather than the defaults.
+        refreshThresholds();
 
         // Expose the pure draw function for the standalone visual-proof test
         // harness (never used by the app itself) to call directly with
         // explicit timestamps/levels, since rAF pauses when this window is
         // occluded and cannot be trusted to paint on demand.
-        window.__typrWaveformDrawFrame = drawFrame;
+        window.__demodWaveformDrawFrame = drawFrame;
+      })();
+
+      // X-circle cancel button (TJ 2026-07-21). Discards an in-progress
+      // recording so it is never transcribed or pasted. The button is the one
+      // child of the recording pill with pointer-events re-enabled; mousedown
+      // is stopped from bubbling so it never starts a pill drag, and the click
+      // invokes the Rust `cancel_recording` command (reuses the Esc-cancel path,
+      // returns the pill to idle).
+      (() => {
+        const btn = document.querySelector('.state-listening .cancel-btn');
+        if (!btn) return;
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+        });
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.core && typeof tauri.core.invoke === 'function') {
+            tauri.core.invoke('cancel_recording').catch((err) => {
+              console.error('[Demod] cancel_recording failed:', err);
+            });
+          }
+        });
       })();
 
       // Status dot (US-008): Rust emits 'status-dot' with payload

@@ -1,7 +1,7 @@
-# UI Animation Libraries — Research for Typr (vanilla JS/CSS in WebView2)
+# UI Animation Libraries — Research for Demod (vanilla JS/CSS in WebView2)
 
 **Date:** 2026-07-20
-**Purpose:** Source concretely portable animation patterns for the Typr dictation app:
+**Purpose:** Source concretely portable animation patterns for the Demod dictation app:
 (A) idle/ready pulse indicators, (B) audio visualizers (highest priority), (C) glow/shimmer/
 gradient-border/card-separation for a dark UI.
 
@@ -54,7 +54,7 @@ gaps are marked UNVERIFIED.
 
 | Source | License | Ship in a real app? |
 |---|---|---|
-| **react-bits** (`DavidHDev/react-bits`) | **MIT + Commons Clause v1.0** (`LICENSE.md`, © 2026 David Haz) | **Yes** — explicitly permits commercial use "as part of an application, website, or product". **But** you "may not sell, sublicense, or redistribute the components themselves — whether alone, in a bundle, or **as a ported version**." Porting for use *inside* Typr is fine; publishing the port as a component library is not. |
+| **react-bits** (`DavidHDev/react-bits`) | **MIT + Commons Clause v1.0** (`LICENSE.md`, © 2026 David Haz) | **Yes** — explicitly permits commercial use "as part of an application, website, or product". **But** you "may not sell, sublicense, or redistribute the components themselves — whether alone, in a bundle, or **as a ported version**." Porting for use *inside* Demod is fine; publishing the port as a component library is not. |
 | **kopiro/siriwave** | **MIT** (© 2020 Flavio Maria De Stefano) | Yes, unrestricted. Attribution only. |
 | **Tailwind CSS** keyframes | MIT | Yes. |
 | **MDN** code samples | CC0 / public domain | Yes. |
@@ -62,7 +62,7 @@ gaps are marked UNVERIFIED.
 | **21st.dev** | Marketplace — per-component, per-author licensing. | **UNVERIFIED per component.** Must check the individual component page. |
 
 > The Commons Clause on react-bits is the one real trap: it does not block using these
-> techniques in Typr, but it does block re-publishing a ported "typr-ui" component pack.
+> techniques in Demod, but it does block re-publishing a ported "demod-ui" component pack.
 
 ---
 
@@ -203,7 +203,7 @@ pattern actually used:
 const reducedMotion = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches).current;
 ```
 Note it is read **once** and never re-subscribed, so it misses runtime changes. Do better in
-Typr — wrap every idle animation:
+Demod — wrap every idle animation:
 
 ```css
 @media (prefers-reduced-motion: reduce) {
@@ -263,7 +263,7 @@ with real data and no GPU dependency.
 Source: <https://github.com/kopiro/siriwave> · **MIT** · **zero runtime dependencies** ·
 canvas-2D · TypeScript (~680 LOC across 3 files). Read from a clone, not the README.
 
-This is the single best fit for Typr: it is the Siri waveform, it is already framework-free,
+This is the single best fit for Demod: it is the Siri waveform, it is already framework-free,
 and its public API is *exactly* the shape a dictation app needs.
 
 **Verified defaults** (`src/index.ts`):
@@ -499,7 +499,7 @@ The glow is pure CSS layered behind it (`ElectricBorder.css`, verbatim):
 WebView2 on an evergreen runtime is fine; if you must support an older pinned runtime,
 precompute the colors instead.
 
-**Why it matters for Typr:** drive `chaos`/`amplitude` from mic RMS and the window border
+**Why it matters for Demod:** drive `chaos`/`amplitude` from mic RMS and the window border
 itself becomes the voice visualizer — no dedicated visualizer widget needed. **Port: MEDIUM**
 (~150 lines of noise + perimeter math, mechanical to strip from React).
 
@@ -570,7 +570,7 @@ gradient, not a blur filter — verified inline background:
 `thickness = 1`). No `filter` is used anywhere in this component, which is why it is so cheap.
 
 Transform+opacity only → compositor-accelerated, **no rAF**, no JS. Reads beautifully on dark
-backgrounds (it is built for `#000`). **This is the best "active/listening" border for Typr.**
+backgrounds (it is built for `#000`). **This is the best "active/listening" border for Demod.**
 **Port: TRIVIAL** — the CSS above is complete and already framework-free.
 
 ### C3. ShinyText — shimmer sweep
@@ -775,7 +775,7 @@ anything is on screen.
 
 ---
 
-# E. Recommendation for Typr
+# E. Recommendation for Demod
 
 | Need | Use | Why |
 |---|---|---|

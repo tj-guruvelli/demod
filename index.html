@@ -78,6 +78,12 @@
             </svg>
             Models
           </button>
+          <button type="button" class="nav-item" id="tab-transcription" role="tab" aria-selected="false" aria-controls="section-transcription" tabindex="-1" data-section="transcription">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2 3.5h12M2 7h9M2 10.5h12M2 14h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            Transcription
+          </button>
           <button type="button" class="nav-item" id="tab-history" role="tab" aria-selected="false" aria-controls="section-history" tabindex="-1" data-section="history">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M3.5 4.5A6 6 0 112.2 8.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -278,35 +284,11 @@
               </div>
             </div>
           </div>
-          <div class="card">
-            <div class="card-header">Dictionary</div>
-            <div class="setting-row setting-row-stacked">
-              <div class="setting-label">
-                <span class="label-text">Custom vocabulary</span>
-                <span class="label-hint">Names, jargon, and product terms fed to whichever engine is active as a recognition hint. This biases what the engine hears &mdash; it does not find-and-replace your finished transcript.</span>
-              </div>
-              <div class="setting-control setting-control-wide">
-                <textarea id="dictionary-textarea" rows="3" placeholder="e.g. Kubernetes, Guruvelli, TheAIAxon"></textarea>
-              </div>
-            </div>
-          </div>
           <div class="card" id="local-settings">
             <div class="card-header">Voice model</div>
             <div id="model-list"></div>
             <div id="download-progress" class="hidden">
               <div id="progress-bar"><div id="progress-fill"></div></div>
-            </div>
-          </div>
-          <div class="card" id="local-language-settings">
-            <div class="card-header">Language</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Spoken language</span>
-                <span class="label-hint">What language you'll be dictating in. Auto-detect works but is slower and less accurate.</span>
-              </div>
-              <div class="setting-control">
-                <select id="language-select"></select>
-              </div>
             </div>
           </div>
           <div class="card hidden" id="cloud-settings">
@@ -344,20 +326,141 @@
           </div>
         </section>
 
+        <section id="section-transcription" class="content-section" role="tabpanel" aria-labelledby="tab-transcription" tabindex="0">
+          <div class="section-header">
+            <h2 class="section-title">Transcription</h2>
+            <p class="section-desc">Language, vocabulary, and how your transcript is cleaned up</p>
+          </div>
+          <div class="card" id="local-language-settings">
+            <div class="card-header">Language</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Spoken language</span>
+                <span class="label-hint">What language you'll be dictating in. Auto-detect works but is slower and less accurate.</span>
+              </div>
+              <div class="setting-control">
+                <select id="language-select"></select>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">Dictionary</div>
+            <div class="setting-row setting-row-stacked">
+              <div class="setting-label">
+                <span class="label-text">Custom vocabulary</span>
+                <span class="label-hint">Names, jargon, and product terms fed to whichever engine is active as a recognition hint. This biases what the engine hears &mdash; it does not find-and-replace your finished transcript.</span>
+              </div>
+              <div class="setting-control setting-control-wide">
+                <textarea id="dictionary-textarea" rows="3" placeholder="e.g. Kubernetes, Guruvelli, TheAIAxon"></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">Text</div>
+            <!-- Rows rendered by renderToggleRows() in main.ts from TEXT_TOGGLE_CATALOG -->
+            <div id="text-toggle-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-header">Clean-up &amp; AI edits</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Remove filler words</span>
+                <span class="label-hint">Strips um, uh, er&hellip; locally. Instant, works offline.</span>
+              </div>
+              <div class="setting-control">
+                <button
+                  type="button"
+                  id="remove-fillers-switch"
+                  class="switch"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="Remove filler words"
+                >
+                  <span class="switch-knob"></span>
+                </button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">AI auto-edits (cloud)</span>
+                <span class="label-hint">Fixes self-corrections and formatting via the cloud model. Adds ~1s; needs cloud engine + Groq key.</span>
+              </div>
+              <div class="setting-control">
+                <button
+                  type="button"
+                  id="auto-edits-switch"
+                  class="switch"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="AI auto-edits (cloud)"
+                >
+                  <span class="switch-knob"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="voice-detection-settings">
+            <div class="card-header">Voice detection</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Voice sensitivity</span>
+                <span class="label-hint">Audio at or below this level counts as silence (flat line). Lower = picks up quieter speech.</span>
+              </div>
+              <div class="setting-control">
+                <input type="range" id="voice-sensitivity-slider" min="0" max="0.1" step="0.005" />
+                <span class="label-hint" id="voice-sensitivity-value"></span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Whisper threshold</span>
+                <span class="label-hint">Below this = whisper (smooth wave). Above = talking (bars).</span>
+              </div>
+              <div class="setting-control">
+                <input type="range" id="whisper-threshold-slider" min="0" max="1" step="0.05" />
+                <span class="label-hint" id="whisper-threshold-value"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="section-history" class="content-section" role="tabpanel" aria-labelledby="tab-history" tabindex="0">
           <div class="section-header">
             <h2 class="section-title">History</h2>
             <p class="section-desc">Past transcripts</p>
           </div>
           <div class="card">
-            <div class="empty-state">
+            <div class="card-header">Transcription history</div>
+            <div class="history-toolbar">
+              <span id="history-count"></span>
+              <button type="button" id="history-clear-btn" class="btn-secondary">Clear history</button>
+            </div>
+            <div id="history-stats" class="history-stats hidden">
+              <div class="history-stat">
+                <span class="history-stat-value" id="history-stat-total"></span>
+                <span class="history-stat-label">dictations</span>
+              </div>
+              <div class="history-stat">
+                <span class="history-stat-value" id="history-stat-words"></span>
+                <span class="history-stat-label">words</span>
+              </div>
+              <div class="history-stat">
+                <span class="history-stat-value" id="history-stat-saved"></span>
+                <span class="history-stat-label">saved</span>
+              </div>
+            </div>
+            <div class="setting-row" id="history-search-row">
+              <label class="visually-hidden" for="history-search">Search transcripts</label>
+              <input type="search" id="history-search" placeholder="Search transcripts&hellip;" autocomplete="off" />
+            </div>
+            <div id="history-list"></div>
+            <div class="empty-state" id="history-empty">
               <svg viewBox="0 0 16 16" fill="none">
                 <path d="M3.5 4.5A6 6 0 112.2 8.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
                 <path d="M2 2.5v2.4h2.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M8 5v3.2l2.2 1.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <span class="empty-title">No history yet</span>
-              <span class="empty-detail">Demod doesn't save past transcripts in this build &mdash; there's nothing to show here.</span>
+              <span class="empty-title" id="history-empty-title">No transcripts yet &mdash; dictate something and it'll show up here.</span>
             </div>
           </div>
         </section>
@@ -367,26 +470,62 @@
             <h2 class="section-title">Privacy</h2>
             <p class="section-desc">What Demod does with your data</p>
           </div>
-          <p class="privacy-copy">
-            Demod transcribes speech locally on this device via whisper.cpp. Nothing is
-            uploaded, except audio you explicitly send to Groq Cloud when the Cloud
-            engine is selected in Models. There is no account system and no telemetry.
-          </p>
           <div class="card">
-            <div class="card-header">Retention</div>
+            <div class="card-header">Posture</div>
+            <p class="privacy-copy">
+              Transcripts are stored ONLY locally, in this app's data folder on this
+              device &mdash; never uploaded. Audio is deleted immediately after every
+              dictation. There is no account system and no telemetry.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-header">Data flow by engine</div>
+            <ul class="dataflow-list">
+              <li><strong>Local (whisper.cpp):</strong> audio never leaves your device.</li>
+              <li id="dataflow-cloud"><strong>Cloud (Groq):</strong> audio is sent to Groq for transcription.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">History</div>
             <div class="setting-row">
               <div class="setting-label">
-                <span class="label-text">Delete recordings automatically</span>
-                <span class="label-hint">Requires History logging, which isn't built yet</span>
+                <span class="label-text">Save transcript history</span>
+                <span class="label-hint">Stores your dictations locally on this device only &mdash; never uploaded.</span>
               </div>
               <div class="setting-control">
-                <span class="gate-badge">
-                  <svg class="badge-icon" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
-                    <path d="M8 5.2v3.3M8 10.8h.01" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                  </svg>
-                  Not available
-                </span>
+                <button
+                  type="button"
+                  id="history-enabled-switch"
+                  class="switch"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="Save transcript history"
+                >
+                  <span class="switch-knob"></span>
+                </button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text" id="privacy-retention-label">Auto-delete after</span>
+                <span class="label-hint">Automatically remove older transcripts.</span>
+              </div>
+              <div class="setting-control">
+                <select id="history-retention-select" aria-labelledby="privacy-retention-label">
+                  <option value="0">Never</option>
+                  <option value="7">7 days</option>
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Clear history</span>
+                <span class="label-hint">Deletes every saved transcript right now.</span>
+              </div>
+              <div class="setting-control">
+                <button type="button" id="privacy-clear-history-btn" class="btn-secondary">Clear history</button>
               </div>
             </div>
           </div>

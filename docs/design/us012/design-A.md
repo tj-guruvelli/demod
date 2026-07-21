@@ -1,13 +1,13 @@
 # US-012 Design A — Faithful Wispr Clone
 
 Angle: mirror Wispr Flow's settings-window look and IA as closely as the research doc
-(`docs/RESEARCH-wispr-superwhisper.md`, section 5) allows, while staying inside Typr's
+(`docs/RESEARCH-wispr-superwhisper.md`, section 5) allows, while staying inside Demod's
 existing dark palette (the same blacks/alphas as `src/overlay.html`) and binding to
 exactly the Rust surface that exists today. Vanilla TS + CSS only. Inline SVG icons
 only. Every control real or honestly disabled with a reason.
 
 Icon note on provenance: these are **lucide-style** paths (same visual language: square
-stroke caps/joins, 1.2px stroke, 16x16 grid, matching Typr's existing `.nav-icon`
+stroke caps/joins, 1.2px stroke, 16x16 grid, matching Demod's existing `.nav-icon`
 convention in `index.html`/`style.css` today) hand-drawn to spec, not byte-extracted
 from the lucide npm package (no CDN/package fetch is allowed under the hard constraints).
 They are visually equivalent to the named lucide icon and license-free to inline.
@@ -31,7 +31,7 @@ This supersedes the current 3-tab scaffold (General/Engine/Recording) by splitti
 Engine into "Models" (Wispr's own naming for its model/voice picker surface) and
 adding Overlay/History/Privacy as their own tabs — matching Wispr's Settings tab row
 (General / System / Audio / Data & Privacy) and SuperWhisper's sidebar (Models /
-History / Advanced) collapsed into Typr's six.
+History / Advanced) collapsed into Demod's six.
 
 ### Icon SVGs (16x16 viewBox, `stroke="currentColor"`, `stroke-width="1.2"`, `fill="none"`, matching the existing `.nav-icon` class)
 
@@ -83,7 +83,7 @@ History / Advanced) collapsed into Typr's six.
 
 Sidebar footer keeps `v0.1.0`; add a second small line under it, `--text-tertiary`,
 11px: `Local-only · no account` — a one-line honesty anchor visible from every section
-(mirrors Wispr's persistent account/billing footer, inverted to state what Typr does
+(mirrors Wispr's persistent account/billing footer, inverted to state what Demod does
 NOT have, since it has no account system).
 
 ---
@@ -470,7 +470,7 @@ toggle-group was not.
 ### 4.5 Overlay tab: reset-position affordance (marked NEW)
 
 Per research §1 (Wispr persists pill position; SuperWhisper clamps on every show),
-Typr's pill position already persists via `pill_hittest.rs` (`overlayX`/`overlayY` in
+Demod's pill position already persists via `pill_hittest.rs` (`overlayX`/`overlayY` in
 config, Rust-owned). Users who drag the pill off a monitor that later disappears fall
 back to default placement automatically per `restore_position()` — but there's
 currently no way to recenter it deliberately without unplugging a monitor. Offer:
@@ -517,7 +517,7 @@ Each gets the same treatment: visible, explained, never clickable-but-inert.
 | Feature | Rust backing today | Gate treatment |
 |---|---|---|
 | Hotkey "change" affordance | None — no runtime re-register-shortcut command exists; `hotkey` is read-only from config, set only via first-run/manual config edit per `progress.txt` | Keep the existing read-only `<kbd>` display (already live via US-010). Add one `.gate-badge` next to it: "Fixed for this build" with a `title` tooltip "Editing the hotkey isn't wired up yet — edit config.json and restart." **No button rendered at all** — a missing affordance is honest; a disabled button implies "coming soon" which we cannot promise on a timeline. |
-| History list | No persistence layer for past transcripts anywhere in the codebase | `.empty-state` block: history icon (opacity 0.35) + "No history yet" + "Typr doesn't save past transcripts in this build — nothing to show here." Zero list markup, zero invoke calls. |
+| History list | No persistence layer for past transcripts anywhere in the codebase | `.empty-state` block: history icon (opacity 0.35) + "No history yet" + "Demod doesn't save past transcripts in this build — nothing to show here." Zero list markup, zero invoke calls. |
 | Privacy → "Delete recordings automatically" | Depends on the same missing History persistence | Render the `.switch` with `disabled` on the `<input>` (grey track per the CSS `:disabled` rule above) plus a `.gate-badge`: "Needs History logging (not implemented)". The control is visibly present (so users know the *shape* of what's planned) but structurally inert — `disabled` attribute, not a fake click handler that no-ops. |
 | Overlay → reset position | Real, additive, described in §4.5 | Not gated — ship it, or cut it entirely (binary call, not a middle ground). |
 

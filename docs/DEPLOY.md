@@ -1,4 +1,4 @@
-# Typr Deploy Runbook
+# Demod Deploy Runbook
 
 > Derived from an adversarial (LLM council) design review, 2026-07-20. Every step here
 > exists because the council found the original plan hand-waved it. Do not skip a step
@@ -40,33 +40,33 @@ be the moment the daily driver is overwritten.
       `beforeBuildCommand` (`npm run build`, per `src-tauri/tauri.conf.json`) and then
       bundles - this is also US-011 and the first end-to-end exercise of the patched
       VS/SDK workarounds on a real release.
-- [ ] CDP smoke (`typr-e2e`) against the freshly built exe, not the installed one.
+- [ ] CDP smoke (`demod-e2e`) against the freshly built exe, not the installed one.
 
 ## 2. Replace the exe (Windows locks a running binary)
 
 The old plan said "replace the exe." Windows will refuse: the running process holds
 the file handle. There is no quit-and-replace logic in the build script.
 
-Installed path confirmed to exist on this machine: `C:\Users\guruv\AppData\Local\Typr\typr.exe`.
+Installed path confirmed to exist on this machine: `C:\Users\guruv\AppData\Local\Demod\demod.exe`.
 
 ```powershell
 # PowerShell
-taskkill /IM typr.exe /F
+taskkill /IM demod.exe /F
 ```
 
 - [ ] CONFIRM the process is actually gone before copying:
       ```powershell
-      Get-Process typr -ErrorAction SilentlyContinue
+      Get-Process demod -ErrorAction SilentlyContinue
       ```
       This must return nothing.
 - [ ] Back up first, in this order (never overwrite the only good copy):
       ```powershell
-      Copy-Item "$env:LOCALAPPDATA\Typr\typr.exe" "$env:LOCALAPPDATA\Typr\typr.exe.bak" -Force
+      Copy-Item "$env:LOCALAPPDATA\Demod\demod.exe" "$env:LOCALAPPDATA\Demod\demod.exe.bak" -Force
       ```
 - [ ] Copy the new binary in, then relaunch:
       ```powershell
-      Copy-Item "C:\Users\guruv\tools\typr\src-tauri\target\release\typr.exe" "$env:LOCALAPPDATA\Typr\typr.exe" -Force
-      & "$env:LOCALAPPDATA\Typr\typr.exe"
+      Copy-Item "C:\Users\guruv\tools\demod\src-tauri\target\release\demod.exe" "$env:LOCALAPPDATA\Demod\demod.exe" -Force
+      & "$env:LOCALAPPDATA\Demod\demod.exe"
       ```
 
 ## 3. Detect a bad deploy (".bak is not a rollback plan, it's a hope")
@@ -83,9 +83,9 @@ not just "can I get the old bytes back." Bad-deploy signals:
 
 ```powershell
 # PowerShell
-taskkill /IM typr.exe /F
-Copy-Item "$env:LOCALAPPDATA\Typr\typr.exe.bak" "$env:LOCALAPPDATA\Typr\typr.exe" -Force
-& "$env:LOCALAPPDATA\Typr\typr.exe"
+taskkill /IM demod.exe /F
+Copy-Item "$env:LOCALAPPDATA\Demod\demod.exe.bak" "$env:LOCALAPPDATA\Demod\demod.exe" -Force
+& "$env:LOCALAPPDATA\Demod\demod.exe"
 ```
 
 Do NOT delete the `.bak` until the dogfood window below has passed.

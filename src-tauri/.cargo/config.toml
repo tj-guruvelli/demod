@@ -18,8 +18,8 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = [
   "-C", "target-feature=+crt-static",
-  "-L", "native=C:/Users/guruv/tools/typr/lib-patch",
+  "-L", "native=C:/Users/guruv/tools/demod/lib-patch",
 ]
 
 [env]
-CL = "/IC:\\Users\\guruv\\tools\\typr\\sdk-patch\\include"
+CL = "/IC:\\Users\\guruv\\tools\\demod\\sdk-patch\\include"

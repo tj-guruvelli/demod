@@ -1,7 +1,7 @@
 {
-  "project": "Typr",
+  "project": "Demod",
   "branchName": "ralph/wispr-parity",
-  "description": "Make Typr (Tauri v2 dictation app, repo root = this directory, C:/Users/guruv/tools/typr) match Wispr Flow / SuperWhisper UX quality. THE SPEC IS docs/RESEARCH-wispr-superwhisper.md - read it before every story; section numbers below refer to it. Architecture rules that apply to EVERY story: overlay animations are transform/opacity ONLY (GPU compositable, no width/height/layout animation), no polling loops anywhere (event-driven: global-shortcut events, Rust-emitted events, WinEventHook; a single rAF loop may run ONLY while the overlay is in the listening state), all state flows Rust -> overlay via the existing eval/emit path, the webview is a pure renderer. DO NOT remove or weaken src-tauri/.cargo/config.toml or the lib-patch/ and sdk-patch/ folders - they work around a damaged VS/SDK install; without them the build breaks. Quality gate for every story: 'npm run build' (tsc + vite) passes AND 'cargo check' inside src-tauri passes. Do not run 'npm run tauri build' except in the final story (it is slow). The app currently works end to end: settings window renders, whisper-server sidecar starts, hotkey CmdOrCtrl+Shift+Space records and pastes.",
+  "description": "Make Demod (Tauri v2 dictation app, repo root = this directory, C:/Users/guruv/tools/demod) match Wispr Flow / SuperWhisper UX quality. THE SPEC IS docs/RESEARCH-wispr-superwhisper.md - read it before every story; section numbers below refer to it. Architecture rules that apply to EVERY story: overlay animations are transform/opacity ONLY (GPU compositable, no width/height/layout animation), no polling loops anywhere (event-driven: global-shortcut events, Rust-emitted events, WinEventHook; a single rAF loop may run ONLY while the overlay is in the listening state), all state flows Rust -> overlay via the existing eval/emit path, the webview is a pure renderer. DO NOT remove or weaken src-tauri/.cargo/config.toml or the lib-patch/ and sdk-patch/ folders - they work around a damaged VS/SDK install; without them the build breaks. Quality gate for every story: 'npm run build' (tsc + vite) passes AND 'cargo check' inside src-tauri passes. Do not run 'npm run tauri build' except in the final story (it is slow). The app currently works end to end: settings window renders, whisper-server sidecar starts, hotkey CmdOrCtrl+Shift+Space records and pastes.",
   "userStories": [
     {
       "id": "US-001",
@@ -116,10 +116,10 @@
     {
       "id": "US-009",
       "title": "Pill interactions: hover emphasis, left-click opens app, right-click quick menu",
-      "description": "As a user, I want the pill to react like a real control (user spec 2026-07-19): HOVER makes it expand slightly and become fully solid/opaque (strengthen the existing :hover rule: opacity to 1.0 and background alpha to ~0.95, plus the scale-up, transform/opacity only). LEFT-CLICK opens/focuses the main Typr settings window (a click is a press-release under ~200ms with no drag movement; a longer press or movement is the existing drag). Per research section 1 (click actions): contextmenu (right-click) opens an in-webview menu growing upward from the pill (transform-origin bottom center, scale 0.95->1 + opacity, 120ms) with items: Hide for 1 hour, Paste last transcript, Settings, Quit. Hide-for-1-hour hides the overlay window and un-hides via a single Rust tokio sleep task (hotkey keeps working while hidden). Quit exits the app cleanly (killing whisper-server as the existing exit handler does). Menu closes on outside click, Esc, or item activation. The 440x160 host gives the menu room; menu must stay within the host window bounds.",
+      "description": "As a user, I want the pill to react like a real control (user spec 2026-07-19): HOVER makes it expand slightly and become fully solid/opaque (strengthen the existing :hover rule: opacity to 1.0 and background alpha to ~0.95, plus the scale-up, transform/opacity only). LEFT-CLICK opens/focuses the main Demod settings window (a click is a press-release under ~200ms with no drag movement; a longer press or movement is the existing drag). Per research section 1 (click actions): contextmenu (right-click) opens an in-webview menu growing upward from the pill (transform-origin bottom center, scale 0.95->1 + opacity, 120ms) with items: Hide for 1 hour, Paste last transcript, Settings, Quit. Hide-for-1-hour hides the overlay window and un-hides via a single Rust tokio sleep task (hotkey keeps working while hidden). Quit exits the app cleanly (killing whisper-server as the existing exit handler does). Menu closes on outside click, Esc, or item activation. The 440x160 host gives the menu room; menu must stay within the host window bounds.",
       "acceptanceCriteria": [
         "Hovering the pill visibly expands it and makes it fully opaque, via transform/opacity only",
-        "A quick left-click (no drag) shows and focuses the main Typr window; dragging still moves the pill",
+        "A quick left-click (no drag) shows and focuses the main Demod window; dragging still moves the pill",
         "Right-clicking the pill opens the menu with the four items, animated with transform/opacity only, fully inside the host window",
         "Hide for 1 hour hides the overlay, dictation still works while hidden, and it reappears after the timer without any polling",
         "Settings shows and focuses the main window; Quit fully exits including the whisper-server child",
@@ -145,10 +145,10 @@
     {
       "id": "US-011",
       "title": "Final integration build and standalone verification",
-      "description": "As a release gate, prove the whole thing ships. Run the full 'npm run tauri build' (slow, allowed here). Then launch src-tauri/target/release/typr.exe with Start-Process, wait 6s, and verify: typr.exe process alive, whisper-server process alive (a model is already downloaded on this machine), and no 'System Error' dialog processes. Enumerate top-level windows (PowerShell + user32 via Add-Type) and confirm both the settings window (title Typr) and the 440x160 overlay window exist. Take a full-screen screenshot to a file and inspect it for the settings window. Kill the launched processes afterward. Record every verification result honestly in progress.txt - if something cannot be verified, say so rather than claiming it.",
+      "description": "As a release gate, prove the whole thing ships. Run the full 'npm run tauri build' (slow, allowed here). Then launch src-tauri/target/release/demod.exe with Start-Process, wait 6s, and verify: demod.exe process alive, whisper-server process alive (a model is already downloaded on this machine), and no 'System Error' dialog processes. Enumerate top-level windows (PowerShell + user32 via Add-Type) and confirm both the settings window (title Demod) and the 440x160 overlay window exist. Take a full-screen screenshot to a file and inspect it for the settings window. Kill the launched processes afterward. Record every verification result honestly in progress.txt - if something cannot be verified, say so rather than claiming it.",
       "acceptanceCriteria": [
         "npm run tauri build completes with exit code 0 and produces the NSIS installer under src-tauri/target/release/bundle/nsis/",
-        "Launched exe: typr and whisper-server processes both confirmed running, overlay + settings windows both found via window enumeration",
+        "Launched exe: demod and whisper-server processes both confirmed running, overlay + settings windows both found via window enumeration",
         "Screenshot captured to a file and its findings recorded in progress.txt",
         "All earlier stories' passes flags are true"
       ],
@@ -171,7 +171,7 @@
       ],
       "priority": 12,
       "passes": true,
-      "notes": "SHIPPED cf33157. 14 bars, BAR_COUNT at overlay.html. Colour: deep purple was MEASURED unusable - #6a0dad is 1.33:1 and #7c3aed is 2.16:1 against the old red pill (floor 4.5:1), so the 'or neon' branch was taken: recording pill body deep purple rgba(24,10,44,.94), bars neon violet #b14dff, measured 4.80:1. HONEST LIMIT: audio.rs emits ONE RMS float, not an FFT, so TJ's 'like a sound frequency' cannot be satisfied literally; each bar reads a different column of the real history instead of faking frequency bands. Verified visually via ../typr-e2e/wave-shot.mjs (CDP + in-page canvas capture): 3936 lit px, tallest bar 36px."
+      "notes": "SHIPPED cf33157. 14 bars, BAR_COUNT at overlay.html. Colour: deep purple was MEASURED unusable - #6a0dad is 1.33:1 and #7c3aed is 2.16:1 against the old red pill (floor 4.5:1), so the 'or neon' branch was taken: recording pill body deep purple rgba(24,10,44,.94), bars neon violet #b14dff, measured 4.80:1. HONEST LIMIT: audio.rs emits ONE RMS float, not an FFT, so TJ's 'like a sound frequency' cannot be satisfied literally; each bar reads a different column of the real history instead of faking frequency bands. Verified visually via ../demod-e2e/wave-shot.mjs (CDP + in-page canvas capture): 3936 lit px, tallest bar 36px."
     },
     {
       "id": "US-013",
@@ -184,7 +184,7 @@
         "Indicator uses transform/opacity only so the fixed-size overlay window is untouched",
         "If the level source is unavailable the indicator renders a neutral/unknown state rather than a fake reading",
         "npm run build passes and cargo check passes (run unpiped, check the exit code)",
-        "cdp-smoke (typr-e2e) reports 25/25 against the freshly built exe"
+        "cdp-smoke (demod-e2e) reports 25/25 against the freshly built exe"
       ],
       "priority": 13,
       "passes": false,
