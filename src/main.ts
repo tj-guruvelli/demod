@@ -95,6 +95,7 @@ const autostartSwitch = document.getElementById("autostart-switch")!;
 const dockPositionText = document.getElementById("dock-position-text")!;
 const footerSidecar = document.getElementById("footer-sidecar")!;
 const footerModel = document.getElementById("footer-model")!;
+const savedToast = document.getElementById("saved-toast")!;
 const footerHotkey = document.getElementById("footer-hotkey")!;
 const historyList = document.getElementById("history-list")!;
 const historyCount = document.getElementById("history-count")!;
@@ -813,6 +814,27 @@ function clearAppNotice() {
   delete appNotice.dataset.kind;
 }
 
+/// Brief forest-neon-green "Saved" confirmation, shown on any settings change so
+/// a dropdown selection gives the same visible confirmation a button does. Uses
+/// its own element so it never clobbers a persistent advisory in appNotice.
+let savedToastTimer: number | undefined;
+function flashSaved(msg = "✓ Saved") {
+  savedToast.textContent = msg;
+  savedToast.classList.add("show");
+  if (savedToastTimer) window.clearTimeout(savedToastTimer);
+  savedToastTimer = window.setTimeout(() => savedToast.classList.remove("show"), 1500);
+}
+
+/// Keep the sidebar footer's "Model: …" line in sync the moment a dropdown or
+/// engine toggle changes it. It was only refreshed by the heavier model-card
+/// render before, so cloud-model picks never updated the footer.
+function refreshFooterModel() {
+  footerModel.textContent =
+    currentSettings.engine === "cloud"
+      ? `Model: Groq ${currentSettings.cloudModel}`
+      : `Model: ${currentSettings.whisperModel}`;
+}
+
 /// Returns whether the save actually reached disk, so callers that need to
 /// show their own "it was stored" confirmation (the Groq key Save button)
 /// never claim success the invoke did not report.
@@ -853,14 +875,21 @@ function hideStatusBadge(el: HTMLElement) {
 engineLocal.addEventListener("click", () => {
   setEngine("local");
   saveSettings();
+  refreshFooterModel();
+  flashSaved();
 });
 
 engineCloud.addEventListener("click", () => {
   setEngine("cloud");
   saveSettings();
+  refreshFooterModel();
+  flashSaved();
 });
 
-micSelect.addEventListener("change", () => saveSettings());
+micSelect.addEventListener("change", () => {
+  saveSettings();
+  flashSaved();
+});
 
 // Event delegation: one listener for every model card's Download/Use button.
 modelList.addEventListener("click", async (e) => {
@@ -972,21 +1001,25 @@ modePtt.addEventListener("click", () => {
 soundsSwitch.addEventListener("click", () => {
   setInteractionSounds(!(currentSettings.interactionSounds ?? true));
   saveSettings();
+  flashSaved();
 });
 
 overlaySwitch.addEventListener("click", () => {
   setOverlayVisible(!(currentSettings.overlayVisible ?? true));
   saveSettings();
+  flashSaved();
 });
 
 removeFillersSwitch.addEventListener("click", () => {
   setRemoveFillers(!(currentSettings.removeFillers ?? true));
   saveSettings();
+  flashSaved();
 });
 
 autoEditsSwitch.addEventListener("click", () => {
   setAutoEdits(!(currentSettings.autoEdits ?? true));
   saveSettings();
+  flashSaved();
 });
 
 // Launch at startup: not part of currentSettings/save_settings — each click
@@ -1025,11 +1058,14 @@ autostartSwitch.addEventListener("click", async () => {
 languageSelect.addEventListener("change", () => {
   setLanguage(languageSelect.value);
   saveSettings();
+  flashSaved();
 });
 
 cloudModelSelect.addEventListener("change", () => {
   setCloudModel(cloudModelSelect.value);
   saveSettings();
+  refreshFooterModel();
+  flashSaved();
 });
 
 // Committed on blur (matches groqKey's pattern) rather than every keystroke —
@@ -1169,11 +1205,13 @@ historyEnabledSwitch.addEventListener("click", () => {
   historyEnabledSwitch.classList.toggle("active", next);
   historyEnabledSwitch.setAttribute("aria-checked", String(next));
   saveSettings();
+  flashSaved();
 });
 
 historyRetentionSelect.addEventListener("change", () => {
   currentSettings.historyRetentionDays = parseInt(historyRetentionSelect.value, 10);
   saveSettings();
+  flashSaved();
 });
 
 // ── Sound preview (diagnostic: "the sounds dont play") ────────────────

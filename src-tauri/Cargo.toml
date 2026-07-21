@@ -45,5 +45,7 @@ windows = { version = "0.61", features = [
     # CreateMutexW (single-instance guard) is gated behind this because its
     # signature references SECURITY_ATTRIBUTES.
     "Win32_Security",
+    # SendInput + KEYBDINPUT for the robust Win32 Ctrl+V paste (paste.rs).
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 winreg = "0.52"

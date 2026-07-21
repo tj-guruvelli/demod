@@ -183,61 +183,29 @@ pub fn paste_text(text: &str, target: Option<PasteTarget>) -> PasteOutcome {
         };
     }
 
-    let saved = arboard::Clipboard::new()
-        .ok()
-        .and_then(|mut c| c.get_text().ok());
-
-    if !windows_impl::write_transcript_clipboard(text) {
-        // Nothing was placed anywhere - not a "copied, paste manually"
-        // fallback, a full delivery failure.
-        return PasteOutcome::Failed;
-    }
-    let seq_after_write = windows_impl::clipboard_sequence();
-
+    // The captured window is confirmed still focused. Deliver by TYPING the
+    // transcript as direct Unicode keystrokes (SendInput KEYEVENTF_UNICODE)
+    // instead of clipboard + Ctrl+V. This is the crux of "dictate anywhere":
+    // terminals (Claude Code, Windows Terminal, VS Code's terminal) and many
+    // apps do NOT paste on Ctrl+V - it's a control key there - so the old
+    // clipboard-paste silently did nothing in exactly those windows. Typed
+    // input goes into ANY focused text field, and it never touches the user's
+    // clipboard.
+    // Belt-and-suspenders: mirror the transcript to the clipboard (plain, no
+    // clipboard-manager exclusion formats) BEFORE typing, so a manual Ctrl+V is
+    // always a guaranteed fallback even if some app refuses the synthetic
+    // typing below. For a dictation app the transcript IS the intended output,
+    // so overwriting the clipboard here is expected, not a side effect.
+    let _ = arboard::Clipboard::new().and_then(|mut c| c.set_text(text.to_string()));
     std::thread::sleep(PRE_PASTE_DELAY);
-
-    if !send_ctrl_v() {
-        return PasteOutcome::Fallback;
+    if windows_impl::type_text(text) {
+        log_paste_decision("confirmed foreground; typed transcript directly (also on clipboard)");
+        PasteOutcome::Pasted
+    } else {
+        // Typing rejected by the app; the transcript is still on the clipboard.
+        log_paste_decision("confirmed foreground; direct typing failed; on clipboard for manual Ctrl+V");
+        PasteOutcome::Fallback
     }
-
-    std::thread::sleep(POST_PASTE_RESTORE_DELAY);
-
-    // Restore only if nothing else has written to the clipboard since we did.
-    // If a clipboard manager or another app wrote in the meantime, restoring
-    // would silently stomp their newer content.
-    if let Some(saved) = saved {
-        if windows_impl::clipboard_sequence() == seq_after_write {
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                let _ = clipboard.set_text(saved);
-            }
-        }
-    }
-
-    PasteOutcome::Pasted
-}
-
-#[cfg(target_os = "windows")]
-fn send_ctrl_v() -> bool {
-    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-    let Ok(mut enigo) = Enigo::new(&Settings::default()) else {
-        return false;
-    };
-    let pressed = enigo.key(Key::Control, Direction::Press).is_ok();
-    let clicked = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
-    // Always release Control, even if the click failed, and retry: a stuck
-    // modifier would corrupt every keystroke the user types next, which is
-    // far worse than a failed paste. One failed release attempt is not
-    // enough - the usual cause (a secure-desktop switch mid-send) is
-    // transient.
-    let mut released = false;
-    for _ in 0..3 {
-        if enigo.key(Key::Control, Direction::Release).is_ok() {
-            released = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    pressed && clicked && released
 }
 
 #[cfg(target_os = "macos")]
@@ -297,6 +265,71 @@ mod windows_impl {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
     };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_CONTROL, VK_SHIFT,
+    };
+
+    /// Type `text` directly into the focused window as Unicode keystrokes
+    /// (SendInput with KEYEVENTF_UNICODE: wVk=0, wScan=UTF-16 code unit). Unlike
+    /// clipboard + Ctrl+V, this reaches ANY focused text field - including
+    /// terminals (Claude Code, Windows Terminal, VS Code) and editors where
+    /// Ctrl+V is NOT the paste key - which is the whole point of "dictate
+    /// anywhere". It never touches the user's clipboard. Modifiers don't affect
+    /// a Unicode injection, but any Ctrl/Shift still held from the toggle hotkey
+    /// is released first for safety. Sent in chunks so a long transcript can't
+    /// overflow one SendInput call. Returns false if any chunk is rejected.
+    pub fn type_text(text: &str) -> bool {
+        fn key_ev(vk: VIRTUAL_KEY, up: bool) -> INPUT {
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: vk,
+                        wScan: 0,
+                        dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            }
+        }
+        fn char_ev(unit: u16, up: bool) -> INPUT {
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0),
+                        wScan: unit,
+                        dwFlags: KEYEVENTF_UNICODE | if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            }
+        }
+        // Release any held hotkey modifiers before typing.
+        let clear = [key_ev(VK_SHIFT, true), key_ev(VK_CONTROL, true)];
+        unsafe {
+            SendInput(&clear, std::mem::size_of::<INPUT>() as i32);
+        }
+        let units: Vec<u16> = text.encode_utf16().collect();
+        if units.is_empty() {
+            return true;
+        }
+        for chunk in units.chunks(64) {
+            let mut inputs: Vec<INPUT> = Vec::with_capacity(chunk.len() * 2);
+            for &u in chunk {
+                inputs.push(char_ev(u, false));
+                inputs.push(char_ev(u, true));
+            }
+            let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+            if sent as usize != inputs.len() {
+                return false;
+            }
+        }
+        true
+    }
 
     /// Clipboard-manager exclusion formats (US-007 research section 3):
     /// their mere presence on the clipboard tells well-behaved clipboard

@@ -61,12 +61,12 @@
            the interactive region at the pill's own edge and the hover flickers.
            180x36 leaves 10px/6px of margin. If you grow these, grow the Rust
            consts first. */
-        /* TJ 2026-07-21: "increase the width and decrease the height" - a
-           longer, flatter resting bar. Was 64x5. */
-        --pill-idle-bar-w: 116px;
-        --pill-idle-bar-h: 4px;
-        --pill-idle-expand-w: 180px;
-        --pill-idle-expand-h: 36px;
+        /* TJ 2026-07-21: match Wispr Flow's compact dock size (screenshots) -
+           "it's too long". Resting bar short; expanded/recording pill small. */
+        --pill-idle-bar-w: 48px;
+        --pill-idle-bar-h: 6px;
+        --pill-idle-expand-w: 112px;
+        --pill-idle-expand-h: 24px;
 
         /* Recording pill: BLACK body, neon violet edge/glow/trace carry the
            LIVE cue (TJ 2026-07-20 - "the pill should be black, only the outline
@@ -77,9 +77,12 @@
            more opaque than idle so recording reads as more solid/present. */
         --pill-recording-bg: rgba(0, 0, 0, 0.96);
         --pill-recording-bg-hover: rgba(0, 0, 0, 0.97);
-        --pill-recording-border: rgba(177, 77, 255, 0.95);
-        --pill-recording-glow: rgba(177, 77, 255, 0.65);
-        --pill-recording-glow-hover: rgba(177, 77, 255, 0.7);
+        /* RED outline while recording (TJ 2026-07-21: "when it's in recording
+           mode, just change the border outline of the recording pill to red").
+           Idle stays deep-purple; red is the unmistakable live-recording cue. */
+        --pill-recording-border: rgba(229, 72, 77, 0.95);
+        --pill-recording-glow: rgba(229, 72, 77, 0.6);
+        --pill-recording-glow-hover: rgba(229, 72, 77, 0.7);
 
         /* Waveform stroke: single flat color (TJ 2026-07-20 - "why is it
            gradient? It should just be one color for the wavelength"). Cyan
@@ -207,12 +210,12 @@
         width: var(--pill-idle-bar-w);
         height: var(--pill-idle-bar-h);
         border-radius: 999px;
-        /* Flat deep-purple bar, NO neon outline/glow at rest (TJ 2026-07-21:
-           "the logo should not display the neon outline border glow ... just a
-           long bar, deep purple"). The violet edge + glow are the HOVER reward
-           only, added back in the :hover rule below. */
-        background: var(--pill-idle-bar-color);
-        border: 1px solid transparent;
+        /* BLACK middle, deep-purple OUTLINE (TJ 2026-07-21: "the actual color
+           should still be black, but the outline should just be that deep
+           purple border"). No glow at rest - the violet glow is the hover
+           reward only, added back in the :hover rule below. */
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid var(--pill-idle-bar-color);
         box-shadow: none;
         transition:
           width 180ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -432,9 +435,9 @@
          rAF frame (transform/opacity-equivalent - a canvas redraw never
          touches layout), never resized here; only its 2D content changes. */
       .state-listening {
-        width: 180px;
-        height: 36px;
-        gap: 6px;
+        width: 112px;
+        height: 24px;
+        gap: 5px;
         background: var(--pill-recording-bg);
         border-color: var(--pill-recording-border);
         box-shadow: 0 0 10px 1px var(--pill-recording-glow);
@@ -444,8 +447,8 @@
          (TJ 2026-07-21: "these sizes should not change ... same rectangular
          pill"). Keep CSS_W in the renderer JS in sync with this width. */
       .state-listening canvas.waveform {
-        width: 128px;
-        height: 28px;
+        width: 64px;
+        height: 16px;
       }
       /* X-circle CANCEL (TJ 2026-07-21): discard an in-progress recording so it
          is never transcribed or pasted anywhere. This is the ONE interactive
@@ -729,7 +732,7 @@
         // store is sized from devicePixelRatio so the stroke stays crisp on
         // hi-DPI displays instead of blurring the old statically-baked 2x
         // canvas attributes.
-        const CSS_W = 128, CSS_H = 28;  // CSS_W must match .state-listening canvas.waveform width in the CSS above
+        const CSS_W = 64, CSS_H = 16;  // CSS_W/H must match .state-listening canvas.waveform in the CSS above
         let dpr = 1;
         const fitCanvasToDPR = () => {
           if (!canvas || !ctx) return;
@@ -876,28 +879,12 @@
           ctx.shadowColor = glowFaint;
           ctx.shadowBlur = GLOW_BLUR;
 
-          // WHISPER: a smooth travelling sine whose amplitude is modulated by
-          // the real mic envelope (samples[]). It travels (phase scrolls with
-          // wall-clock time) AND is mic-driven, so it is neither a dead in-place
-          // sine (rejected before) nor invented motion. Envelope 0 -> a flat
-          // line at silence. Talking falls through to the bars below.
-          if (mode === 'wave') {
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 2;
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            for (let x = 0; x <= CSS_W; x += 2) {
-              const frac = x / CSS_W;
-              const si = Math.min(SAMPLE_COUNT - 1, Math.round(frac * (SAMPLE_COUNT - 1)));
-              const env = reduceMotion ? d : samples[si];
-              const y = mid + Math.sin(frac * WAVE_CYCLES * Math.PI * 2 + wavePhase) * env * ampScale;
-              if (x === 0) ctx.moveTo(x, y);
-              else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            return;
-          }
+          // DISCRETE BARS ONLY (TJ 2026-07-21, final): the sine/whisper wave is
+          // removed - it read as a flat line whose pitch changed but never
+          // travelled. The bars below are the single recording animation for
+          // both quiet and loud speech; bar heights already scale with the live
+          // mic level, so whispering shows short bars and talking shows tall
+          // ones (still dynamic, just no separate wave mode).
 
           // Bar/gap proportions measured 2026-07-20 from Wispr Flow's own
           // assets, not chosen by eye: Wispr's live web demo ships
@@ -1040,6 +1027,11 @@
         // explicit timestamps/levels, since rAF pauses when this window is
         // occluded and cannot be trusted to paint on demand.
         window.__demodWaveformDrawFrame = drawFrame;
+        // Standalone browser preview (no Tauri backend): expose a level setter
+        // and auto-enter the listening state on ?demo, so the meter animates
+        // from synthetic input for design iteration in a plain browser.
+        window.__demodSetLevel = (v) => { level = Math.max(0, +v || 0); };
+        if (location.search.includes('demo')) mic.dataset.state = 'listening';
       })();
 
       // X-circle cancel button (TJ 2026-07-21). Discards an in-progress

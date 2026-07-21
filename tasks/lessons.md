@@ -1,4 +1,25 @@
 
+## 2026-07-21 — "Dictate anywhere" must TYPE the text, not clipboard+Ctrl+V
+
+TJ, furious: "it's still not pasting it in here ... it was working perfectly fine
+before ... what have you been fucking up?" He was dictating into Claude Code (a
+terminal). `paste.log` said "confirmed foreground; Ctrl+V sent" - the injection
+fired into the right window - yet nothing appeared. Root cause: **terminals treat
+Ctrl+V as a control key, not paste** (paste is Ctrl+Shift+V / right-click there),
+so a clipboard + synthetic-Ctrl+V paste silently does nothing in exactly the apps
+a developer dictates into most. The fix Wispr uses: **type the transcript directly
+as Unicode keystrokes** (`SendInput` with `KEYEVENTF_UNICODE`, wVk=0, wScan=code
+unit), which lands in ANY focused text field regardless of its paste shortcut.
+Belt-and-suspenders: also mirror to the clipboard (plain, no exclusion formats) so
+Ctrl+V is a guaranteed manual fallback. See paste.rs `windows_impl::type_text`.
+
+Corollary — you CANNOT verify synthetic input from these Bash/PowerShell tools:
+they run **non-interactive** (no interactive window station), so `SendInput`
+returns success (events accepted) but nothing renders. A self-contained WinForms
+textbox test still showed empty because of the same non-interactive station. The
+API works; only an interactive desktop (the running app, or the user) can confirm
+rendering. Don't mistake a non-interactive-shell false-negative for an app bug.
+
 ## 2026-07-21 — A rename isn't done until the identity is pinned AND committed
 
 TJ: "all my changes got wiped out ... models re-download ... why isn't this
