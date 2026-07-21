@@ -450,6 +450,21 @@
         width: 64px;
         height: 16px;
       }
+      /* SiriWave WebGL canvas (TJ 2026-07-21): the live recording animation.
+         Fills the same slot the old 2D bars canvas held; whisper renders the
+         fluid-dots shader, talking renders the chromatic wave shader. */
+      .state-listening canvas.siri-gl {
+        width: 74px;
+        height: 18px;
+        border-radius: 4px;
+      }
+      /* SiriWave on the "processing"/loading state (TJ 2026-07-21: use SiriWave
+         for anything non-instant). Replaces the old 3-dot pulse. */
+      .state-processing canvas.siri-proc {
+        width: 96px;
+        height: 20px;
+        border-radius: 4px;
+      }
       /* X-circle CANCEL (TJ 2026-07-21): discard an in-progress recording so it
          is never transcribed or pasted anywhere. This is the ONE interactive
          child of the pill: `.layer * { pointer-events: none }` keeps the OS
@@ -619,6 +634,7 @@
         <div class="idle-hotkey" id="idle-hotkey"></div>
       </div>
       <div class="layer state-listening" data-tauri-drag-region>
+        <canvas class="siri-gl" width="200" height="48"></canvas>
         <canvas class="waveform" width="320" height="56"></canvas>
         <button
           class="cancel-btn"
@@ -635,9 +651,7 @@
         <div class="status-dot"></div>
       </div>
       <div class="layer state-processing" data-tauri-drag-region>
-        <div class="dot"></div>
-        <div class="dot"></div>
-        <div class="dot"></div>
+        <canvas class="siri-proc" width="200" height="48"></canvas>
         <div class="status-dot"></div>
       </div>
       <div class="layer state-done" data-tauri-drag-region>
@@ -912,22 +926,23 @@
           const MIN_H = 2;                        // silence floor: a row of dots, still a flat "nothing happening" read
 
           for (let b = 0; b < BAR_COUNT; b++) {
-            // Sample the history strip at this bar's position. Bar 0 is the
-            // oldest column, the last bar is the newest, so activity travels
-            // across the meter instead of every bar pumping in unison.
-            const si = reduceMotion
-              ? SAMPLE_COUNT - 1
-              : Math.min(SAMPLE_COUNT - 1, Math.round((b / (BAR_COUNT - 1)) * (SAMPLE_COUNT - 1)));
-            const v = reduceMotion ? d : samples[si];
-
-            // Centre bars taller than the edges, so a uniform level still reads
-            // as a voice meter rather than a flat block. Weight is positional
-            // and fixed - never randomised per frame, which would be motion the
-            // mic did not cause.
-            const t = (b / (BAR_COUNT - 1)) * 2 - 1;          // -1..1 across the meter
-            const weight = 0.55 + 0.45 * Math.cos(t * Math.PI / 2);
-
-            const h = Math.max(MIN_H, v * weight * ampScale * 2);
+            // Flowing bar animation ported from the 21st.dev "Waveform" React
+            // component (TJ 2026-07-21): each bar's height is two phase-shifted
+            // sines plus a little noise, driven by wall-clock time so the bars
+            // TRAVEL in a live wave (not just a static level meter). Then scaled
+            // by the real mic level (d) so quiet reads gentle and speaking fills
+            // the meter. Reduced-motion drops the time-driven flow.
+            let combined;
+            if (reduceMotion) {
+              combined = 0.5;
+            } else {
+              const w1 = Math.sin(now * 0.0036 + b * 0.5) * 0.5 + 0.5;
+              const w2 = Math.sin(now * 0.006 + b * 0.3 + 2) * 0.3 + 0.3;
+              const noise = Math.random() * 0.2;
+              combined = (w1 + w2 + noise) / 1.5;   // ~0..1, flowing
+            }
+            const amp = reduceMotion ? Math.max(0.25, d) : 0.35 + d * 0.65;
+            const h = Math.max(MIN_H, combined * amp * (CSS_H - 2));
             const x = b * slotW + (slotW - barW) / 2;
             const y = mid - h / 2;
 
@@ -1030,8 +1045,198 @@
         // Standalone browser preview (no Tauri backend): expose a level setter
         // and auto-enter the listening state on ?demo, so the meter animates
         // from synthetic input for design iteration in a plain browser.
-        window.__demodSetLevel = (v) => { level = Math.max(0, +v || 0); };
+        window.__demodSetLevel = (v) => { level = Math.max(0, +v || 0); window.__demodMicLevel = level; };
         if (location.search.includes('demo')) mic.dataset.state = 'listening';
+      })();
+
+      // SiriWave WebGL: chromatic "wave" shader when TALKING, a simple travelling
+      // sine when WHISPERING, switching on the mic level vs the whisper threshold
+      // (TJ 2026-07-21). WAVE_FS is the 21st.dev SiriWave "wave" fragment shader,
+      // ported verbatim. Renders on .siri-gl only while recording; the old 2D
+      // bars canvas is hidden. rAF pauses when the window is occluded.
+      (() => {
+        const mic = document.getElementById('mic');
+        const canvas = document.querySelector('.state-listening canvas.siri-gl');
+        if (!canvas) return;
+        const gl = canvas.getContext('webgl');
+        if (!gl) return;
+
+        const VS = `attribute vec2 aPos; void main(){ gl_Position=vec4(aPos,0.0,1.0); }`;
+        const WAVE_FS = `precision highp float;
+uniform vec2 iResolution; uniform float iTime;
+const float PI = 3.14159265359;
+const float AMPLITUDE = 0.32; const float FREQ = 1.1; const float ABER_FREQ = 1.0;
+const float SPEED = 2.4; const float WAVE_SCALE = 0.6; const float ABERRATION = 2.6;
+const float THICKNESS = 3.0; const float INTENSITY = 2.; const float FALLOFF = 1.7;
+const float EDGE_MASK = 0.4; const float EDGE_INSET = 0.0; const float BAND_FILL = 30000.0;
+const float BAND_THICK = 0.08; const float SOFTNESS = 2.5; const float LOW_AMP = 6.0;
+const float LOW_INT = 1.5; const float MID_ABER = 0.8; const float MID_ABAMP = 0.05;
+const float MID_BAND = 20.0; const float MID_SOFT = 0.4; const float HIGH_ABER = 0.5;
+const float HIGH_ABAMP = 0.06; const float RESOLVED = 1.0; const float UNRES_SCALE = 0.14;
+vec3 spectral4(int s){ float x = float(s); return clamp(vec3(abs(x-3.0)-1.0, 2.0-abs(x-2.0), 2.0-abs(x-4.0)), 0.0, 1.0); }
+void mainImage(out vec4 fragColor, in vec2 fragCoord){
+  vec2 R = iResolution.xy; float aspect = R.x / R.y;
+  vec2 p = (fragCoord + 0.5) * 2.0 / R - 1.0; p.x *= aspect;
+  float yScreen = p.y; p /= max(WAVE_SCALE, 0.1);
+  float t = iTime;
+  float low  = clamp(0.45 + 0.45*sin(t*0.8)*sin(t*0.37+1.0), 0.0, 1.0);
+  float mid  = clamp(0.40 + 0.40*sin(t*1.7+2.0)*sin(t*0.53), 0.0, 1.0);
+  float high = clamp(0.30 + 0.30*sin(t*2.9+4.0)*sin(t*0.71+2.0), 0.0, 1.0);
+  float res = clamp(RESOLVED, 0.0, 1.0); float drift = mod(t, 20.0*PI) * SPEED;
+  float xN = p.x / max(aspect, 1.0); float env = cos(PI*0.5 * min(abs(0.9*xN), 1.0)); env *= env;
+  float A1 = AMPLITUDE + 0.01*low*LOW_AMP; float A2 = A1 + mid*MID_ABAMP + high*HIGH_ABAMP;
+  float AB = (ABERRATION + mid*MID_ABER + high*HIGH_ABER)*res;
+  float th = mix(0.1, 0.01*THICKNESS, res); float inten = mix(0.1, 0.01*(INTENSITY + low*LOW_INT), res);
+  float soft = 0.01*res*max(0.0, SOFTNESS + mid*MID_SOFT);
+  float dUnres = max(length(p) - mix(0.14, UNRES_SCALE, res), 0.0);
+  float yMain = A1 * env * res * sin(p.x*FREQ + drift);
+  float bandFillTh = max(BAND_THICK, 1e-4); float bandAmt = 1e-4 * BAND_FILL * inten;
+  vec3 num = vec3(0.0), den = vec3(0.0);
+  for(int s = 0; s < 4; s++){
+    vec3 hue = mix(vec3(1.0), spectral4(s), res); den += hue;
+    float ab = mix(-AB, AB, float(s)/3.0);
+    float yL = A2 * env * res * sin(p.x*ABER_FREQ + drift + ab);
+    float d = mix(dUnres, abs(p.y - yL), res);
+    float lor = mix(1.0/(1.0 + (0.02*d)*(0.02*d)), 1.0, res);
+    float line = inten / (sqrt(d*d + soft*soft) + th);
+    float lo = min(yMain, yL), hi = max(yMain, yL);
+    float dBand = max(0.0, max(p.y - hi, lo - p.y));
+    float band = bandAmt / (dBand + bandFillTh);
+    num += hue * lor * (line + band);
+  }
+  vec3 col = num / den;
+  float dM = mix(dUnres, abs(p.y - yMain), res);
+  float lorM = mix(1.0/(1.0 + (0.02*dM)*(0.02*dM)), 1.0, res);
+  float boost = (1.0 - res) * (14.0*low + 4.0);
+  col += 0.5 * inten * (lorM + boost) / (sqrt(dM*dM + soft*soft) + th);
+  col = pow(max(col, 0.0), vec3(1.5));
+  float emT = clamp((abs(yScreen) - 1.0 + EDGE_INSET) / (-max(EDGE_MASK, 1e-4)), 0.0, 1.0);
+  float em = emT*emT*(3.0 - 2.0*emT); float gauss = exp(-pow(xN*FALLOFF, 2.0));
+  col *= mix(1.0, em*gauss, res); col *= res;
+  fragColor = vec4(col, 1.0);
+}
+void main(){ mainImage(gl_FragColor, gl_FragCoord.xy); }`;
+        const SINE_FS = `precision highp float;
+uniform vec2 iResolution; uniform float iTime;
+void main(){
+  vec2 uv = gl_FragCoord.xy / iResolution.xy;
+  float x = uv.x; float y = (uv.y - 0.5) * 2.0;
+  float envs = 0.5 + 0.5 * sin(x * 3.14159);
+  float wave = 0.55 * envs * sin(x * 22.0 - iTime * 5.0);
+  float d = abs(y - wave);
+  float lineA = smoothstep(0.16, 0.0, d);
+  vec3 col = vec3(0.69, 0.30, 1.0) * lineA;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+        // Shared with the processing-state renderer below so the SiriWave shader
+        // is compiled from a single source.
+        window.__DEMOD_VS = VS;
+        window.__DEMOD_WAVE_FS = WAVE_FS;
+        const compile = (type, src) => {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src); gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error('[Demod] shader:', gl.getShaderInfoLog(s));
+          return s;
+        };
+        const mkProg = (fs) => {
+          const p = gl.createProgram();
+          gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+          gl.linkProgram(p);
+          const a = gl.getAttribLocation(p, 'aPos');
+          gl.useProgram(p); gl.enableVertexAttribArray(a);
+          gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+          return { p, uRes: gl.getUniformLocation(p, 'iResolution'), uTime: gl.getUniformLocation(p, 'iTime') };
+        };
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const waveProg = mkProg(WAVE_FS);
+        const sineProg = mkProg(SINE_FS);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Mic level -> talking/whispering, same thresholds as the 2D loop.
+        let level = 0, smoothRaw = 0, talking = false, wf = null;
+        let silenceGate = 0.035, whisperThreshold = 0.5;
+        const TALK_REF = 0.15, HYST = 0.08;
+        const t2 = window.__TAURI__;
+        if (t2 && t2.webviewWindow) {
+          t2.webviewWindow.getCurrentWebviewWindow().listen('audio-level', (e) => { level = e.payload; });
+        }
+        const refresh = () => {
+          if (t2 && t2.core && typeof t2.core.invoke === 'function') {
+            t2.core.invoke('get_settings').then((s) => {
+              if (s && typeof s.voiceSensitivity === 'number') silenceGate = s.voiceSensitivity;
+              if (s && typeof s.whisperThreshold === 'number') whisperThreshold = s.whisperThreshold;
+            }).catch(() => {});
+          }
+        };
+        refresh();
+        new MutationObserver(() => { if (mic.dataset.state === 'listening') { refresh(); talking = false; } })
+          .observe(mic, { attributes: true, attributeFilter: ['data-state'] });
+
+        const start = performance.now();
+        const loop = () => {
+          requestAnimationFrame(loop);
+          if (mic.dataset.state !== 'listening') return;
+          const lvl = (typeof window.__demodMicLevel === 'number' && location.search.includes('demo'))
+            ? window.__demodMicLevel : level;
+          smoothRaw += (Math.max(lvl, 0) - smoothRaw) * 0.15;
+          const loudness = Math.min(1, smoothRaw / TALK_REF);
+          if (!talking && loudness > whisperThreshold + HYST) talking = true;
+          else if (talking && loudness < whisperThreshold - HYST) talking = false;
+          // WHISPER -> SiriWave chromatic wave (this WebGL canvas). TALK -> the
+          // 21st.dev "Wave" pulsing bars (the 2D waveform canvas, drawn by the
+          // other loop). Toggle which canvas shows on the whisper/talk edge.
+          if (!wf) wf = document.querySelector('.state-listening canvas.waveform');
+          canvas.style.display = talking ? 'none' : 'block';
+          if (wf) wf.style.display = talking ? 'block' : 'none';
+          if (talking) return; // the 2D bars loop owns the talking animation
+          gl.useProgram(waveProg.p);
+          gl.uniform2f(waveProg.uRes, canvas.width, canvas.height);
+          gl.uniform1f(waveProg.uTime, (performance.now() - start) / 1000);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        };
+        loop();
+      })();
+
+      // SiriWave on the "processing"/loading state - reuses the shader from the
+      // listening renderer (TJ 2026-07-21: use SiriWave for anything non-instant,
+      // like the transcription wait). Renders only while data-state=processing.
+      (() => {
+        const mic = document.getElementById('mic');
+        const canvas = document.querySelector('.state-processing canvas.siri-proc');
+        if (!canvas) return;
+        const gl = canvas.getContext('webgl');
+        if (!gl || !window.__DEMOD_VS || !window.__DEMOD_WAVE_FS) return;
+        const compile = (type, src) => {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src); gl.compileShader(s);
+          return s;
+        };
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl.VERTEX_SHADER, window.__DEMOD_VS));
+        gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, window.__DEMOD_WAVE_FS));
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const a = gl.getAttribLocation(prog, 'aPos');
+        gl.enableVertexAttribArray(a);
+        gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+        const uRes = gl.getUniformLocation(prog, 'iResolution');
+        const uTime = gl.getUniformLocation(prog, 'iTime');
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        const startP = performance.now();
+        const loopP = () => {
+          requestAnimationFrame(loopP);
+          if (mic.dataset.state !== 'processing') return;
+          gl.uniform2f(uRes, canvas.width, canvas.height);
+          gl.uniform1f(uTime, (performance.now() - startP) / 1000);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        };
+        loopP();
       })();
 
       // X-circle cancel button (TJ 2026-07-21). Discards an in-progress
