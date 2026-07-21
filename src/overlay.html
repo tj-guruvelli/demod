@@ -899,23 +899,19 @@
           const MIN_H = 3;                                           // resting height - silence still reads as bars
 
           for (let b = 0; b < BAR_COUNT; b++) {
-            // Flowing bar animation ported from the 21st.dev "Waveform" React
-            // component (TJ 2026-07-21): each bar's height is two phase-shifted
-            // sines plus a little noise, driven by wall-clock time so the bars
-            // TRAVEL in a live wave (not just a static level meter). Then scaled
-            // by the real mic level (d) so quiet reads gentle and speaking fills
-            // the meter. Reduced-motion drops the time-driven flow.
-            let combined;
-            if (reduceMotion) {
-              combined = 0.5;
-            } else {
-              const w1 = Math.sin(now * 0.0036 + b * 0.5) * 0.5 + 0.5;
-              const w2 = Math.sin(now * 0.006 + b * 0.3 + 2) * 0.3 + 0.3;
-              const noise = Math.random() * 0.2;
-              combined = (w1 + w2 + noise) / 1.5;   // ~0..1, flowing
-            }
-            const amp = reduceMotion ? Math.max(0.3, d) : 0.3 + d * 0.7;
-            const h = Math.max(MIN_H, combined * amp * (CSS_H - 2));
+            // "Wave": a traveling ripple. Each bar samples ONE sine at a per-bar
+            // phase offset, so the cluster is ALWAYS wavy - bars sit at clearly
+            // different heights and the crest travels left->right, exactly like
+            // the decorative @loading-ui component (which animates with no audio
+            // at all). The mic level (d) only scales the overall amplitude on
+            // top, so speaking makes the wave TALLER without flattening it into
+            // one uniform block (TJ 2026-07-21: "all bars same height, not wavy").
+            // Always-on wave - deliberately ignores prefers-reduced-motion: the
+            // user explicitly wants the pill to move (TJ 2026-07-21). The crest
+            // travels left->right; voice only scales the overall height.
+            const wave = 0.5 + 0.5 * Math.sin(now * 0.008 - b * 1.15);  // 0..1, staggered per bar, always moving
+            const envelope = 0.45 + d * 0.55;                          // baseline keeps the wave alive when quiet
+            const h = Math.max(MIN_H, wave * envelope * (CSS_H - 2));
             const x = x0 + b * (barW + gap);
             const y = mid - h / 2;
 
@@ -1070,9 +1066,7 @@
           ctx.shadowColor = glowFaint;
           ctx.shadowBlur = 2.5;
           for (let b = 0; b < BAR_COUNT; b++) {
-            const scale = reduceMotion
-              ? 0.6
-              : 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(now * 0.007 - b * 0.9));
+            const scale = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(now * 0.007 - b * 0.9));  // always-on traveling wave
             const h = Math.max(MIN_H, scale * (CSS_H - 2));
             const x = x0 + b * (barW + gap);
             const y = mid - h / 2;
@@ -1093,7 +1087,7 @@
           rafId = requestAnimationFrame(frame);
         };
         const enter = () => {
-          if (reduceMotion) { draw(performance.now()); return; } // static readout, no loop
+          // Always loop (ignore reduced-motion) - the loading wave must move.
           if (!rafId) rafId = requestAnimationFrame(frame);
         };
         new MutationObserver(() => {
