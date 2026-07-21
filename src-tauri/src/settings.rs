@@ -96,11 +96,11 @@ pub struct Settings {
     pub history_retention_days: u32,
     /// Remove vocalized filler words (um, uh, er, ...) from every transcript.
     /// Local and instant (no network); on by default.
-    #[serde(rename = "removeFillers", default = "default_true")]
+    #[serde(rename = "removeFillers", default)]
     pub remove_fillers: bool,
     /// AI auto-edits (Wispr-style "clean output"): a cloud LLM pass that fixes
     /// self-corrections and formatting. Cloud-only, adds ~0.5-1s; on by default.
-    #[serde(rename = "autoEdits", default = "default_true")]
+    #[serde(rename = "autoEdits", default)]
     pub auto_edits: bool,
 }
 

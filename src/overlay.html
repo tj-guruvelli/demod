@@ -435,8 +435,8 @@
          rAF frame (transform/opacity-equivalent - a canvas redraw never
          touches layout), never resized here; only its 2D content changes. */
       .state-listening {
-        width: 176px;
-        height: 30px;
+        width: 104px;
+        height: 28px;
         gap: 6px;
         background: var(--pill-recording-bg);
         border-color: var(--pill-recording-border);
@@ -447,16 +447,16 @@
          (TJ 2026-07-21: "these sizes should not change ... same rectangular
          pill"). Keep CSS_W in the renderer JS in sync with this width. */
       .state-listening canvas.waveform {
-        width: 118px;
-        height: 22px;
+        width: 44px;
+        height: 20px;
       }
       /* Processing/loading uses the SAME 21st.dev "Wave" bars as recording
          (TJ 2026-07-21: the SiriWave WebGL read too small and glitched, so it
          was dropped entirely). Self-animated - there is no mic input during the
          transcription wait, so it is an honest busy indicator, not a fake level. */
       .state-processing canvas.waveform-proc {
-        width: 110px;
-        height: 22px;
+        width: 44px;
+        height: 20px;
       }
       /* X-circle CANCEL (TJ 2026-07-21): discard an in-progress recording so it
          is never transcribed or pasted anywhere. This is the ONE interactive
@@ -500,8 +500,8 @@
       /* Processing: the Wave bars, self-animated while transcription runs
          (replaced the old 3-dot pulse). */
       .state-processing {
-        width: 140px;
-        height: 30px;
+        width: 96px;
+        height: 28px;
         gap: 6px;
       }
 
@@ -714,7 +714,7 @@
         // store is sized from devicePixelRatio so the stroke stays crisp on
         // hi-DPI displays instead of blurring the old statically-baked 2x
         // canvas attributes.
-        const CSS_W = 118, CSS_H = 22;  // CSS_W/H must match .state-listening canvas.waveform in the CSS above
+        const CSS_W = 44, CSS_H = 20;  // CSS_W/H must match .state-listening canvas.waveform in the CSS above
         let dpr = 1;
         const fitCanvasToDPR = () => {
           if (!canvas || !ctx) return;
@@ -887,11 +887,16 @@
           // audio-independent. Ours are driven by real RMS, and the per-bar
           // history read below is what keeps them from pumping in unison
           // honestly rather than by faking offsets.
-          const BAR_COUNT = 10;                   // 10 fits the 128px canvas at the same ~12px pitch the 160px canvas held with 13
-          const slotW = CSS_W / BAR_COUNT;        // ~12.8px pitch
-          const barW = slotW * 0.25;              // ~3px; the rest is gap
-          const radius = barW / 2;                // fully rounded caps
-          const MIN_H = 2;                        // silence floor: a row of dots, still a flat "nothing happening" read
+          // Compact 5-bar cluster - the 21st.dev @loading-ui "Wave" component
+          // (TJ 2026-07-21, from the screenshot): a small centered equalizer
+          // glyph, NOT a wide meter. Bars are rounded rectangles, centered.
+          const BAR_COUNT = 5;
+          const barW = 4;
+          const gap = 4;
+          const cluster = BAR_COUNT * barW + (BAR_COUNT - 1) * gap;  // 36px
+          const x0 = (CSS_W - cluster) / 2;                          // centered in the canvas
+          const radius = 2;                                          // rounded rectangles, not full pills
+          const MIN_H = 3;                                           // resting height - silence still reads as bars
 
           for (let b = 0; b < BAR_COUNT; b++) {
             // Flowing bar animation ported from the 21st.dev "Waveform" React
@@ -909,9 +914,9 @@
               const noise = Math.random() * 0.2;
               combined = (w1 + w2 + noise) / 1.5;   // ~0..1, flowing
             }
-            const amp = reduceMotion ? Math.max(0.25, d) : 0.35 + d * 0.65;
+            const amp = reduceMotion ? Math.max(0.3, d) : 0.3 + d * 0.7;
             const h = Math.max(MIN_H, combined * amp * (CSS_H - 2));
-            const x = b * slotW + (slotW - barW) / 2;
+            const x = x0 + b * (barW + gap);
             const y = mid - h / 2;
 
             ctx.beginPath();
@@ -1033,15 +1038,17 @@
         const reduceMotion = window.matchMedia &&
           window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        const CSS_W = 110, CSS_H = 22;  // must match .state-processing canvas.waveform-proc
+        const CSS_W = 44, CSS_H = 20;  // must match .state-processing canvas.waveform-proc
         const rootStyle = getComputedStyle(document.documentElement);
         const strokeColor = (rootStyle.getPropertyValue('--wave-stroke').trim() || '#b14dff');
         const glowFaint = (rootStyle.getPropertyValue('--wave-glow-faint').trim() || 'rgba(177, 77, 255, 0.2)');
-        const BAR_COUNT = 9;              // ~12px pitch across 110px, same look as recording
-        const slotW = CSS_W / BAR_COUNT;
-        const barW = slotW * 0.25;
-        const radius = barW / 2;
-        const MIN_H = 2;
+        const BAR_COUNT = 5;             // Molecule UI "Wave Loader": 5 vertical bars scaling in a wave
+        const barW = 4;
+        const gap = 4;
+        const cluster = BAR_COUNT * barW + (BAR_COUNT - 1) * gap;
+        const x0 = (CSS_W - cluster) / 2;
+        const radius = 2;
+        const MIN_H = 3;
 
         let dpr = 1;
         const fit = () => {
@@ -1052,9 +1059,9 @@
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         };
 
-        // Identical bar math to the recording renderer's drawFrame (two
-        // phase-shifted sines + a little noise), just with a fixed amplitude
-        // since there is no live level to scale by.
+        // Wave Loader: each bar scales its height up/down, staggered by index
+        // so the scale-wave travels across the cluster. Decorative (no mic
+        // during the transcription wait) - an honest "working" indicator.
         const draw = (now) => {
           fit();
           const mid = CSS_H / 2;
@@ -1063,18 +1070,11 @@
           ctx.shadowColor = glowFaint;
           ctx.shadowBlur = 2.5;
           for (let b = 0; b < BAR_COUNT; b++) {
-            let combined;
-            if (reduceMotion) {
-              combined = 0.5;
-            } else {
-              const w1 = Math.sin(now * 0.0036 + b * 0.5) * 0.5 + 0.5;
-              const w2 = Math.sin(now * 0.006 + b * 0.3 + 2) * 0.3 + 0.3;
-              const noise = Math.random() * 0.2;
-              combined = (w1 + w2 + noise) / 1.5;
-            }
-            const amp = reduceMotion ? 0.5 : 0.7;
-            const h = Math.max(MIN_H, combined * amp * (CSS_H - 2));
-            const x = b * slotW + (slotW - barW) / 2;
+            const scale = reduceMotion
+              ? 0.6
+              : 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(now * 0.007 - b * 0.9));
+            const h = Math.max(MIN_H, scale * (CSS_H - 2));
+            const x = x0 + b * (barW + gap);
             const y = mid - h / 2;
             ctx.beginPath();
             ctx.roundRect(x, y, barW, h, radius);
