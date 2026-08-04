@@ -382,14 +382,19 @@
          is set at runtime and it auto-reverts to idle. Used to report why a
          quick-menu action could not run, rather than failing silently. */
       .state-notice {
-        width: 240px;
-        height: 36px;
-        padding: 0 14px;
+        width: auto;
+        max-width: 400px;
+        min-width: 180px;
+        min-height: 36px;
+        height: auto;
+        padding: 8px 16px;
         font-size: 12px;
+        line-height: 1.4;
         color: #d8d8d8;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
+        word-wrap: break-word;
+        overflow: visible;
+        text-align: center;
       }
 
       /* Paste-fallback (US-007): shown when refocus/paste fails; transcript

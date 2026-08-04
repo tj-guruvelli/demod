@@ -450,7 +450,13 @@ async function loadSettings() {
       option.textContent = mic.name + (mic.is_default ? " (default)" : "");
       micSelect.appendChild(option);
     });
+    // If saved mic name not in list (e.g. empty string or removed device),
+    // fall back to the default device so dictation works out of the box.
     micSelect.value = currentSettings.microphone;
+    if (!micSelect.value) {
+      const defaultMic = mics.find((m) => m.is_default);
+      if (defaultMic) micSelect.value = defaultMic.name;
+    }
   }
 
   // Engine

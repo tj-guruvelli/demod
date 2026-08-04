@@ -118,10 +118,18 @@ pub fn model_filename(model_size: &str) -> String {
 }
 
 pub fn model_download_url(model_size: &str) -> String {
-    format!(
-        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin",
-        model_size
-    )
+    // archive.org mirror for small/medium (HuggingFace blocked by some corporate proxies).
+    // large-v3 is only on HuggingFace; fall back to HF for it.
+    match model_size {
+        "small" | "medium" => format!(
+            "https://archive.org/download/whisper-models/ggml-{}.bin",
+            model_size
+        ),
+        _ => format!(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin",
+            model_size
+        ),
+    }
 }
 
 #[cfg(test)]

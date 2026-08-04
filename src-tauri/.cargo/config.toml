@@ -18,8 +18,9 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = [
   "-C", "target-feature=+crt-static",
-  "-L", "native=C:/Users/guruv/tools/demod/lib-patch",
+  "-C", "linker=lld-link.exe",
+  "-L", "native=C:/Users/gunateja.guruvelli/Documents/demod/lib-patch",
 ]
 
 [env]
-CL = "/IC:\\Users\\guruv\\tools\\demod\\sdk-patch\\include"
+CL = "/IC:\\Users\\gunateja.guruvelli\\Documents\\demod\\sdk-patch\\include"
