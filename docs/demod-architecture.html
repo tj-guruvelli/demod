@@ -63,7 +63,7 @@
   <div class="header">
     <div class="header-row">
       <div class="pulse-dot"></div>
-      <h1>Demod — System Architecture</h1>
+      <h1>Demod: System Architecture</h1>
     </div>
     <p class="subtitle">Local-first Windows dictation app · Tauri v2 + whisper.cpp · v0.1.0</p>
   </div>
@@ -325,15 +325,15 @@
         <h3>Rust Backend Modules</h3>
       </div>
       <ul>
-        <li>• main.rs — hotkey, overlay host, app lifecycle</li>
-        <li>• recorder.rs — state machine, Esc cancel, focus guard</li>
-        <li>• audio.rs — cpal WASAPI capture, WAV, RMS emit</li>
-        <li>• settings.rs — config.json load/save, serde</li>
-        <li>• pill_hittest.rs — WH_MOUSE_LL hook, drag, click-through</li>
-        <li>• sounds.rs — winmm start/stop pings</li>
-        <li>• history.rs + applog.rs — transcript + event logs</li>
-        <li>• autostart.rs — HKCU Run key management</li>
-        <li>• downloader.rs — streaming model download + progress</li>
+        <li>• main.rs: hotkey, overlay host, app lifecycle</li>
+        <li>• recorder.rs: state machine, Esc cancel, focus guard</li>
+        <li>• audio.rs: cpal WASAPI capture, WAV, RMS emit</li>
+        <li>• settings.rs: config.json load/save, serde</li>
+        <li>• pill_hittest.rs: WH_MOUSE_LL hook, drag, click-through</li>
+        <li>• sounds.rs: winmm start/stop pings</li>
+        <li>• history.rs + applog.rs: transcript + event logs</li>
+        <li>• autostart.rs: HKCU Run key management</li>
+        <li>• downloader.rs: streaming model download + progress</li>
       </ul>
     </div>
 
@@ -362,7 +362,7 @@
         <li>• All config + models → %APPDATA%\com.demod.app\</li>
         <li>• Audio deleted immediately after each dictation</li>
         <li>• Transcript history: local-only, optional, size-capped</li>
-        <li>• Cloud path: audio sent to Groq only — nothing else</li>
+        <li>• Cloud path: audio sent to Groq only, nothing else</li>
         <li>• Zero telemetry, no account system</li>
         <li>• API key stored in plaintext config.json (local only)</li>
         <li>• Single-instance mutex prevents hotkey conflicts</li>

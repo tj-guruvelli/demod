@@ -1,6 +1,6 @@
 # Demod
 
-> A local-first dictation app for Windows. Press a hotkey, talk, get text — anywhere on your desktop.
+> A local-first dictation app for Windows. Press a hotkey, talk, get text. Works anywhere on your desktop.
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](https://github.com/tj-guruvelli/demod)
 [![Version](https://img.shields.io/badge/version-0.1.0-purple)](https://github.com/tj-guruvelli/demod/releases)
@@ -9,7 +9,7 @@
 
 ---
 
-Demod (short for "demodulator" — the circuit that recovers signal from a carrier wave) is a global-hotkey dictation tool. Hit `Ctrl+Shift+Space`, talk, and your words are typed directly into whatever app is focused. No clipboard juggling. No browser tab. No subscription.
+Demod (short for "demodulator", the circuit that recovers signal from a carrier wave) is a global-hotkey dictation tool. Hit `Ctrl+Shift+Space`, talk, and your words are typed directly into whatever app is focused. No clipboard juggling. No browser tab. No subscription.
 
 Transcription runs **fully on-device** via whisper.cpp. Groq cloud is available as an optional fast path when you have an API key.
 
@@ -65,32 +65,32 @@ Config/Data: %APPDATA%\com.demod.app\
 
 ## Features
 
-- **Global hotkey dictation** — `Ctrl+Shift+Space` from any app. Three modes:
+- **Global hotkey dictation**: `Ctrl+Shift+Space` from any app. Three modes:
   - **Auto** (default): tap to toggle, hold for push-to-talk
   - **Toggle**: one press starts, next press stops
   - **Push-to-talk**: held = recording, released = transcribe
-- **Types directly into any app** — injects text as Win32 `SendInput` Unicode keystrokes. Works in terminals, browsers, editors, Electron apps — anywhere, regardless of paste shortcut.
+- **Types directly into any app**: injects text as Win32 `SendInput` Unicode keystrokes. Works in terminals, browsers, editors, Electron apps, anywhere, regardless of paste shortcut.
 - **Two transcription engines**
-  - **Local (whisper.cpp)** — fully on-device, zero network, no API key needed. Models: Small (466 MB, fast), Medium (1.5 GB, balanced), Large-v3 (2.9 GB, best quality).
-  - **Cloud (Groq)** — near-real-time via `whisper-large-v3-turbo`. Free tier with your own key at [console.groq.com](https://console.groq.com).
-- **Animated overlay pill** — bottom-center of screen, always on top:
+  - **Local (whisper.cpp)**: fully on-device, zero network, no API key needed. Models: Small (466 MB, fast), Medium (1.5 GB, balanced), Large-v3 (2.9 GB, best quality).
+  - **Cloud (Groq)**: near-real-time via `whisper-large-v3-turbo`. Free tier with your own key at [console.groq.com](https://console.groq.com).
+- **Animated overlay pill**: bottom-center of of screen, always on top:
   - **Idle**: flat lozenge bar, hover expands, click opens settings
   - **Recording**: red pill with 5-bar live waveform tracking voice level
   - **Transcribing**: wave-loader ripple animation
   - **Done**: green tick flash (400ms), back to idle
   - **Notice**: full error message displayed in pill (no silent failures)
   - **Cancel**: X-circle button discards in-progress recording
-- **Esc to cancel** — under 30s: instant discard. Over 30s: confirm-discard prompt (prevents accidental loss of long recordings).
-- **Auto-paste with focus guard** — captures foreground window at recording stop; skips paste if you switched apps during transcription (clipboard fallback instead).
+- **Esc to cancel**: under 30s: instant discard. Over 30s: confirm-discard prompt (prevents accidental loss of long recordings).
+- **Auto-paste with focus guard**: captures foreground window at recording stop; skips paste if you switched apps during transcription (clipboard fallback instead).
 - **Optional text cleanup**
   - Filler-word removal (local, instant)
   - AI auto-edit via Groq `llama-3.1-8b-instant` (opt-in)
-  - **Both OFF by default** — raw transcript unless you enable them.
-- **Interaction sounds** — start/stop pings (opt-out in settings).
-- **Searchable history** — local transcript log, size-capped, optional auto-delete window.
-- **Single-instance** — named Win32 mutex prevents hotkey conflicts from duplicate launches.
-- **Launch at startup** — registry Run key (removes legacy Startup-folder shortcut if found).
-- **Per-user isolation** — all data under `%APPDATA%\com.demod.app\`, nothing system-wide.
+  - **Both OFF by default.** Raw transcript unless you enable them.
+- **Interaction sounds**: start/stop pings (opt-out in settings).
+- **Searchable history**: local transcript log, size-capped, optional auto-delete window.
+- **Single-instance**: named Win32 mutex prevents hotkey conflicts from duplicate launches.
+- **Launch at startup**: registry Run key (removes legacy Startup-folder shortcut if found).
+- **Per-user isolation**: all data under `%APPDATA%\com.demod.app\`, nothing system-wide.
 
 ---
 
@@ -117,7 +117,7 @@ Config/Data: %APPDATA%\com.demod.app\
 
 - [Node.js](https://nodejs.org) 18+
 - [Rust](https://rustup.rs) stable (MSVC toolchain: `rustup default stable-x86_64-pc-windows-msvc`)
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/) — WebView2 runtime (ships with Windows 11; install on Win 10)
+- [Tauri prerequisites](https://tauri.app/start/prerequisites/): WebView2 runtime (ships with Windows 11; install on Win 10)
 
 ### Build & Run
 
@@ -169,7 +169,7 @@ Key settings:
 | `removeFillers` | `false` | Strip um/uh/like locally |
 | `autoEdits` | `false` | AI cleanup via Groq LLM |
 
-> **Security:** `config.json` is local-only and never transmitted. Your Groq API key is stored in plaintext — do not commit or share this file.
+> **Security:** `config.json` is local-only and never transmitted. Your Groq API key is stored in plaintext. Do not commit or share this file.
 
 ---
 
@@ -187,10 +187,10 @@ Key settings:
 
 ## Known Limitations
 
-- **Windows only** — macOS/Linux not supported (Win32 APIs throughout: SendInput, WH_MOUSE_LL, WASAPI).
-- **Corporate proxy (Zscaler etc.)** — `api.groq.com` and `huggingface.co` may be blocked. Use local engine + download models manually via `archive.org` mirror.
-- **Large-v3 model** — only available on HuggingFace (no mirror). Download off-network if HF is blocked.
-- **VS SDK damage** — if AV quarantines MSVC CRT libs, use `stable-x86_64-pc-windows-msvc` + `lld-link` workaround in `.cargo/config.toml`.
+- **Windows only**: macOS/Linux not supported (Win32 APIs throughout: SendInput, WH_MOUSE_LL, WASAPI).
+- **Corporate proxy (Zscaler etc.)**: `api.groq.com` and `huggingface.co` may be blocked. Use local engine + download models manually via `archive.org` mirror.
+- **Large-v3 model**: only available on HuggingFace (no mirror). Download off-network if HF is blocked.
+- **VS SDK damage**: if AV quarantines MSVC CRT libs, use `stable-x86_64-pc-windows-msvc` + `lld-link` workaround in `.cargo/config.toml`.
 
 ---
 
@@ -236,4 +236,4 @@ demod/
 
 ## Status
 
-`v0.1.0` — personal project, actively developed. Windows 10/11 x64 only.
+`v0.1.0`. Personal project, actively developed. Windows 10/11 x64 only.
