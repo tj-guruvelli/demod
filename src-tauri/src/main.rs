@@ -24,7 +24,7 @@ mod sounds;
 /// Fixed-size transparent overlay host (Wispr "Status" window pattern),
 /// logical px. The OS window is never resized; the pill morphs inside it.
 const OVERLAY_W: f64 = 440.0;
-const OVERLAY_H: f64 = 160.0;
+const OVERLAY_H: f64 = 200.0; // extra height for multi-line notice pill
 
 /// US-005 "auto" recording mode gesture state, one enum behind one lock so
 /// the read-decide-mutate step for a Pressed/Released pair is a single
