@@ -1,107 +1,239 @@
 # Demod
 
-> **Formerly "Typr". Renamed to `Demod` on 2026-07-20** — directory, bundle
-> identifier, and on-disk user data all moved together, so the rename is complete
-> rather than cosmetic: checkout is `tools/demod`, the identifier is
-> `com.demod.app`, and the pre-existing `com.typr.app` config + whisper model were
-> migrated into it. Tauri derives the settings path from the identifier, so any
-> FURTHER identifier change would orphan the saved config (engine, API key, hotkey)
-> and the 487 MB model unless those directories are moved again in lockstep.
+> A local-first dictation app for Windows. Press a hotkey, talk, get text — anywhere on your desktop.
 
-Demod (a clipping of "demodulator" — the circuit that recovers information from a
-carrier wave) is a local-first dictation app for Windows: press a hotkey, talk, and
-your speech is transcribed and typed straight into whatever text field is focused.
-Transcription runs **locally on your machine** via whisper.cpp, with an optional
-cloud engine (Groq) when you want lower latency. With the local engine, your audio
-never leaves the device.
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](https://github.com/tj-guruvelli/demod)
+[![Version](https://img.shields.io/badge/version-0.1.0-purple)](https://github.com/tj-guruvelli/demod/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-orange)](https://tauri.app)
 
-Built with Tauri v2 + vanilla TypeScript. Wispr-Flow-style overlay, no Electron.
+---
+
+Demod (short for "demodulator" — the circuit that recovers signal from a carrier wave) is a global-hotkey dictation tool. Hit `Ctrl+Shift+Space`, talk, and your words are typed directly into whatever app is focused. No clipboard juggling. No browser tab. No subscription.
+
+Transcription runs **fully on-device** via whisper.cpp. Groq cloud is available as an optional fast path when you have an API key.
+
+Built with **Tauri v2 + vanilla TypeScript**. No Electron, no Node runtime in production.
+
+---
+
+## Architecture
+
+![Demod Architecture](docs/architecture.png)
+
+See [`docs/demod-architecture.html`](docs/demod-architecture.html) for the interactive SVG diagram.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        User Desktop                          │
+│                                                              │
+│  Global Hotkey (Ctrl+Shift+Space)                           │
+│       │                                                      │
+│       ▼                                                      │
+│  ┌─────────────┐     ┌──────────────────────────────────┐   │
+│  │  Overlay    │     │         Tauri v2 Shell (Rust)    │   │
+│  │  Pill UI    │◄────│  recorder.rs  │  main.rs         │   │
+│  │  (WebView2) │     │  audio.rs     │  settings.rs     │   │
+│  └─────────────┘     │  sounds.rs    │  autostart.rs    │   │
+│                      └───────┬───────┴──────────────────┘   │
+│                              │                               │
+│              ┌───────────────┴───────────────┐              │
+│              │                               │              │
+│              ▼                               ▼              │
+│   ┌──────────────────┐           ┌───────────────────────┐  │
+│   │  Local Engine    │           │   Cloud Engine (Groq) │  │
+│   │  whisper.cpp     │           │   whisper-large-v3    │  │
+│   │  sidecar process │           │   turbo / standard    │  │
+│   │  ggml-*.bin      │           │   api.groq.com        │  │
+│   └──────────────────┘           └───────────────────────┘  │
+│              │                                               │
+│              ▼                                               │
+│   ┌──────────────────┐                                       │
+│   │  SendInput       │  ← types transcript directly          │
+│   │  (Win32 API)     │    into focused app                   │
+│   └──────────────────┘                                       │
+└─────────────────────────────────────────────────────────────┘
+
+Config/Data: %APPDATA%\com.demod.app\
+  ├── config.json       (settings, API key)
+  ├── ggml-small.bin    (466 MB, local ASR)
+  ├── ggml-medium.bin   (1.5 GB, local ASR)
+  └── dmod.log          (runtime events)
+```
+
+---
 
 ## Features
 
-- **Push-to-dictate hotkey** — toggle recording with a global shortcut
-  (default `Ctrl+Shift+Space`), from any app.
-- **Types the transcript directly** — injects the text as Unicode keystrokes
-  (`SendInput`), so it lands in terminals, editors, browsers, and anywhere else
-  regardless of that app's paste shortcut. The clipboard is also mirrored as a
-  manual fallback.
-- **Two engines**
-  - **Local** — whisper.cpp runs the model on-device; audio never leaves the machine.
-  - **Cloud** — Groq, defaulting to `whisper-large-v3-turbo` for near-real-time
-    transcription. All Groq whisper models are free to use with your own key.
-- **Animated overlay pill**
-  - Idle: a flat deep-purple bar; hover reveals the logo; click opens the app.
-  - Recording: a red pill with a live 5-bar **Wave** — a traveling ripple whose
-    height tracks your voice level.
-  - Transcribing: a **Wave Loader** ripple while the text comes back.
-  - An X-circle **cancel** button discards an in-progress recording so it is never
-    transcribed or pasted.
-- **Voice detection** — tunable microphone sensitivity and a whisper threshold.
-- **History / Privacy / Transcription tabs** — searchable local dictation history
-  (atomic writes, size cap, optional retention window), a per-engine data-flow
-  disclosure, and language/formatting controls.
-- **Optional text cleanup** — local filler-word removal and an AI auto-edit pass
-  (Groq `llama-3.1-8b-instant`). **Both are OFF by default** — Demod ships your raw
-  words; turn either on in Settings if you want them.
-- **Single instance** — a Windows named mutex prevents a second copy from stealing
-  the hotkey.
-- **Per-user isolation** — all settings, history, and models live under the current
-  Windows user's app-data directory.
+- **Global hotkey dictation** — `Ctrl+Shift+Space` from any app. Three modes:
+  - **Auto** (default): tap to toggle, hold for push-to-talk
+  - **Toggle**: one press starts, next press stops
+  - **Push-to-talk**: held = recording, released = transcribe
+- **Types directly into any app** — injects text as Win32 `SendInput` Unicode keystrokes. Works in terminals, browsers, editors, Electron apps — anywhere, regardless of paste shortcut.
+- **Two transcription engines**
+  - **Local (whisper.cpp)** — fully on-device, zero network, no API key needed. Models: Small (466 MB, fast), Medium (1.5 GB, balanced), Large-v3 (2.9 GB, best quality).
+  - **Cloud (Groq)** — near-real-time via `whisper-large-v3-turbo`. Free tier with your own key at [console.groq.com](https://console.groq.com).
+- **Animated overlay pill** — bottom-center of screen, always on top:
+  - **Idle**: flat lozenge bar, hover expands, click opens settings
+  - **Recording**: red pill with 5-bar live waveform tracking voice level
+  - **Transcribing**: wave-loader ripple animation
+  - **Done**: green tick flash (400ms), back to idle
+  - **Notice**: full error message displayed in pill (no silent failures)
+  - **Cancel**: X-circle button discards in-progress recording
+- **Esc to cancel** — under 30s: instant discard. Over 30s: confirm-discard prompt (prevents accidental loss of long recordings).
+- **Auto-paste with focus guard** — captures foreground window at recording stop; skips paste if you switched apps during transcription (clipboard fallback instead).
+- **Optional text cleanup**
+  - Filler-word removal (local, instant)
+  - AI auto-edit via Groq `llama-3.1-8b-instant` (opt-in)
+  - **Both OFF by default** — raw transcript unless you enable them.
+- **Interaction sounds** — start/stop pings (opt-out in settings).
+- **Searchable history** — local transcript log, size-capped, optional auto-delete window.
+- **Single-instance** — named Win32 mutex prevents hotkey conflicts from duplicate launches.
+- **Launch at startup** — registry Run key (removes legacy Startup-folder shortcut if found).
+- **Per-user isolation** — all data under `%APPDATA%\com.demod.app\`, nothing system-wide.
 
-## Tech stack
+---
 
-| Layer      | Choice                                             |
-|------------|----------------------------------------------------|
-| Shell      | Tauri v2 (Rust)                                    |
-| Frontend   | Vanilla TypeScript + Vite (no framework)           |
-| Local ASR  | whisper.cpp (bundled sidecar)                      |
-| Cloud ASR  | Groq Whisper API                                   |
-| Auto-edit  | Groq `llama-3.1-8b-instant` (opt-in)               |
-| Platform   | Windows 10/11 (x64)                                |
+## Tech Stack
 
-## Getting started
+| Layer | Choice | Notes |
+|---|---|---|
+| Shell | Tauri v2 (Rust) | No Electron, native WebView2 |
+| Frontend | Vanilla TypeScript + Vite | No framework |
+| Overlay | WebView2 (inline HTML/CSS) | CSS-only animations |
+| Local ASR | whisper.cpp sidecar | ggml format, 3 model sizes |
+| Cloud ASR | Groq Whisper API | Optional, requires key |
+| Auto-edit | Groq llama-3.1-8b-instant | Opt-in |
+| Audio | cpal (cross-platform audio) | WASAPI on Windows |
+| Text injection | Win32 SendInput | Works in all apps |
+| Mouse hook | WH_MOUSE_LL (Win32) | Pill hit-test / drag |
+| Platform | Windows 10/11 x64 | Only target |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org) 18+
+- [Rust](https://rustup.rs) stable (MSVC toolchain: `rustup default stable-x86_64-pc-windows-msvc`)
+- [Tauri prerequisites](https://tauri.app/start/prerequisites/) — WebView2 runtime (ships with Windows 11; install on Win 10)
+
+### Build & Run
 
 ```bash
+git clone https://github.com/tj-guruvelli/demod
+cd demod
 npm install
-npm run tauri dev      # develop
-npm run tauri build    # produce the release exe + MSI/NSIS installers
+npm run tauri dev       # dev mode (hot-reload frontend)
+npm run tauri build     # production exe + NSIS/MSI installer
 ```
 
-The release binary is written to `src-tauri/target/release/demod.exe`, with
-installers under `src-tauri/target/release/bundle/`.
+Release binary: `src-tauri/target/release/demod.exe`
+Installers: `src-tauri/target/release/bundle/`
 
-> **Build note (this machine):** local AV HTTPS scanning blocks fetching new
-> crates and can gut parts of the VS/Windows SDK. The repo carries the necessary
-> offline/link workarounds in `.cargo/config.toml`; builds run with
-> `CARGO_NET_OFFLINE=true`. Always build via `npm run tauri build` (never a plain
-> `cargo build --release`, which would embed the dev-server URL and ship a dead
-> WebView). See `docs/` for the full deploy runbook.
+### Download a Voice Model
+
+The app will prompt you on first run. Models are downloaded from [archive.org](https://archive.org/download/whisper-models/) (small/medium) or [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp) (large-v3).
+
+| Model | Size | Speed | Best for |
+|---|---|---|---|
+| Small | 466 MB | Fast | Quick notes, strong accent tolerance |
+| Medium | 1.5 GB | Balanced | Everyday dictation (recommended) |
+| Large-v3 | 2.9 GB | Slower | Maximum accuracy, technical vocabulary |
+
+Or drop a model file manually:
+```
+%APPDATA%\com.demod.app\ggml-small.bin
+%APPDATA%\com.demod.app\ggml-medium.bin
+%APPDATA%\com.demod.app\ggml-large-v3.bin
+```
+
+---
 
 ## Configuration
 
-Set your Groq API key and pick an engine/model in **Settings**. Configuration is
-stored locally at:
+All settings live in `%APPDATA%\com.demod.app\config.json` and are managed through the Settings UI.
 
-```
-%APPDATA%\com.demod.app\config.json
-```
+Key settings:
 
-That file holds your preferences and, if you use the cloud engine, your Groq API
-key **in plaintext** — it is local-only and never transmitted anywhere except to
-Groq for transcription. Do not commit or share it.
+| Setting | Default | Description |
+|---|---|---|
+| `engine` | `"local"` | `"local"` or `"cloud"` |
+| `whisperModel` | `"small"` | `"small"`, `"medium"`, or `"large-v3"` |
+| `microphone` | `""` | Device name or `""` for system default |
+| `hotkey` | `"CmdOrCtrl+Shift+Space"` | Global recording shortcut |
+| `recordingMode` | `"auto"` | `"auto"`, `"toggle"`, or `"push-to-talk"` |
+| `groqApiKey` | `""` | Required for cloud engine |
+| `autoPaste` | `true` | Auto-type transcript on stop |
+| `removeFillers` | `false` | Strip um/uh/like locally |
+| `autoEdits` | `false` | AI cleanup via Groq LLM |
+
+> **Security:** `config.json` is local-only and never transmitted. Your Groq API key is stored in plaintext — do not commit or share this file.
+
+---
 
 ## Privacy
 
-- **Local engine:** audio is transcribed on-device; nothing is uploaded.
-- **Cloud engine:** audio is sent to Groq for transcription only.
-- History is stored locally and can be disabled or auto-pruned in Settings.
-- Auto-edit / filler-removal are off by default; your transcript is otherwise
-  verbatim.
+| Data | Where it goes |
+|---|---|
+| Audio (local engine) | Never leaves your device |
+| Audio (cloud engine) | Sent to Groq for transcription only |
+| Transcript history | Stored locally, never uploaded |
+| Settings / API key | Local only (`%APPDATA%\com.demod.app\`) |
+| Telemetry | None |
+
+---
+
+## Known Limitations
+
+- **Windows only** — macOS/Linux not supported (Win32 APIs throughout: SendInput, WH_MOUSE_LL, WASAPI).
+- **Corporate proxy (Zscaler etc.)** — `api.groq.com` and `huggingface.co` may be blocked. Use local engine + download models manually via `archive.org` mirror.
+- **Large-v3 model** — only available on HuggingFace (no mirror). Download off-network if HF is blocked.
+- **VS SDK damage** — if AV quarantines MSVC CRT libs, use `stable-x86_64-pc-windows-msvc` + `lld-link` workaround in `.cargo/config.toml`.
+
+---
+
+## Project Structure
+
+```
+demod/
+├── src/                    # TypeScript frontend
+│   ├── main.ts             # Settings UI, hotkey capture, history
+│   ├── overlay.html        # Overlay pill (self-contained HTML/CSS/JS)
+│   └── style.css           # Settings window styles
+├── src-tauri/              # Rust backend
+│   ├── src/
+│   │   ├── main.rs         # App setup, hotkey, overlay, menu commands
+│   │   ├── recorder.rs     # Recording state machine, transcription dispatch
+│   │   ├── audio.rs        # cpal microphone capture, WAV writing
+│   │   ├── transcribe_local.rs   # whisper.cpp sidecar, model download
+│   │   ├── transcribe_groq.rs    # Groq API client
+│   │   ├── settings.rs     # Config load/save, defaults
+│   │   ├── sounds.rs       # Start/stop pings (winmm)
+│   │   ├── pill_hittest.rs # WH_MOUSE_LL hook, drag, click-through
+│   │   ├── autostart.rs    # Registry Run key management
+│   │   ├── history.rs      # Transcript log (atomic writes, size cap)
+│   │   ├── applog.rs       # Runtime event log (dmod.log)
+│   │   └── downloader.rs   # Streaming model download with progress
+│   ├── binaries/           # Bundled whisper.cpp sidecars + DLLs
+│   ├── .cargo/config.toml  # Linker / SDK workarounds
+│   └── tauri.conf.json     # App config, bundle settings
+├── docs/                   # Architecture diagrams, runbooks
+├── index.html              # Settings window shell
+└── progress.txt            # Dev log / session notes
+```
+
+---
+
+## IDE Setup
+
+[VS Code](https://code.visualstudio.com/) +
+[Tauri extension](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) +
+[rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+
+---
 
 ## Status
 
-Personal project, `v0.1.0`. Windows-only for now.
-
-## Recommended IDE setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+`v0.1.0` — personal project, actively developed. Windows 10/11 x64 only.
