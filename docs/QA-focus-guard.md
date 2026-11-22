@@ -69,7 +69,7 @@ Full deploy/restore commands (PowerShell) live there; summary:
 
 - Kill running `demod.exe`, CONFIRM the process is gone, copy the new exe in with the
   old one kept as `demod.exe.bak`, relaunch, run the CDP smoke test, then this script.
-- Restore one-liner (memorize the location, `C:\Users\guruv\AppData\Local\Demod\`):
+- Restore one-liner (memorize the location, `%LOCALAPPDATA%\Demod\`):
   stop the new exe, copy `demod.exe.bak` back over `demod.exe`, relaunch.
 - Bad-exe DETECTION = any scenario above failing, or hotkey dead, or sidecar not up
   within 10s of launch.

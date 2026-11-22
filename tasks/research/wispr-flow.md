@@ -927,6 +927,6 @@ Listed rather than guessed.
 - Third-party pricing aggregators (lower confidence): https://spokenly.app/blog/superwhisper-pricing · https://www.getvoibe.com/resources/superwhisper-pricing/ · https://www.getvoibe.com/resources/aqua-voice-pricing/ · https://www.getvoibe.com/resources/macwhisper-pricing/
 
 **Demod's own code (for the gap analysis)**
-- `C:/Users/guruv/tools/demod/src-tauri/src/settings.rs` — the full settings struct
-- `C:/Users/guruv/tools/demod/src-tauri/src/main.rs` — the `#[tauri::command]` surface
+- `src-tauri/src/settings.rs` — the full settings struct
+- `src-tauri/src/main.rs` — the `#[tauri::command]` surface
 </content>

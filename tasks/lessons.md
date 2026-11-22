@@ -198,3 +198,21 @@ This is one step past the existing "a repo edit is not a shipped change" lesson:
 a successful BUILD is not shipped. The exe must be copied over
 `%LOCALAPPDATA%\Demod\demod.exe` and relaunched. When the user reports "still
 broken", the FIRST check is `installed-exe mtime vs built-exe mtime`, not the source.
+
+## 2026-11-22 — Never hard-code paths; machine fixes live outside the repo
+
+TJ: "i do not ever want hard-coded paths ... need to be dynamic every single time."
+Trigger: `src-tauri/.cargo/config.toml` was committed with
+`C:/Users/guruv/tools/demod/...` (the damaged-VS workaround), plus `lib-patch/` and
+`sdk-patch/` copies of Microsoft SDK files inside the repo. Cloning onto any other PC,
+or moving the folder, broke the build silently. Docs and prd.json repeated the same
+absolute path, and the ralph runner still pointed at the pre-rename `tools/typr`.
+
+Rule: an absolute path in a tracked file is a bug. Repo config stays portable
+(`+crt-static` only); anything specific to one machine (toolchain damage, AV
+workarounds) goes in that machine's user-level `~/.cargo/config.toml` with the patch
+files under `~/.cargo/msvc-patch/`. Scripts derive the repo from cwd or their own
+location; docs say `%LOCALAPPDATA%` / `%APPDATA%`. Gate before commit:
+`git grep -n -i -E "C:[/\]+Users|/c/Users|/home/"` must return nothing outside this
+file. Also: README must state that INSTALLING Demod never requires cloning the repo;
+TJ did not know the NSIS installer was self-contained.

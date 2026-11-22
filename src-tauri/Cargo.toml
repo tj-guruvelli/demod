@@ -6,11 +6,9 @@ authors = ["you"]
 edition = "2021"
 
 [lib]
-# Renamed typr_lib -> demod_lib on 2026-07-20 alongside the product rename to
-# Demod, together with every `use demod_lib::...` import in src-tauri/src/*.rs.
-# An earlier pass deferred this and left the crate named after the old product,
-# which is exactly the "the repo still says typr" problem the rename exists to
-# solve. No internal identifier should outlive the name it was derived from.
+# Crate name tracks the product name — `demod_lib`, matched by every
+# `use demod_lib::...` import in src-tauri/src/*.rs. No internal identifier
+# should outlive the name it was derived from.
 name = "demod_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 

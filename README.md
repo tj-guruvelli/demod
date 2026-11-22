@@ -17,6 +17,29 @@ Built with **Tauri v2 + vanilla TypeScript**. No Electron, no Node runtime in pr
 
 ---
 
+## Install (use Demod on any PC)
+
+**You do not need to clone this repository, or install Rust, Node, Visual Studio, or anything else, to use Demod.** Demod ships as a normal Windows installer, like any other desktop app. The source code is only for people who want to change it.
+
+1. Open the [Releases page](https://github.com/tj-guruvelli/demod/releases).
+2. Download `Demod_<version>_x64-setup.exe` (or the `.msi` for a per-machine install).
+3. Run it. Demod installs to `%LOCALAPPDATA%\Demod` and adds a Start menu shortcut. No admin rights needed.
+4. Launch Demod, pick an engine in **Settings**, and press `Ctrl+Shift+Space` in any text field to dictate.
+
+| Included in the installer | Not needed on the target PC |
+|---|---|
+| `demod.exe`, the whisper.cpp sidecars and DLLs | Git, this repo, Rust, Node, Visual Studio |
+| The C runtime (statically linked) | The VC++ redistributable |
+| Settings UI, overlay, history store | Admin rights (per-user install) |
+
+The only download after install is the whisper model the first time you use the **Local** engine (466 MB for Small); Demod fetches it itself into `%APPDATA%\com.demod.app`. The **Cloud** engine needs no model, only a Groq API key. WebView2 is already part of Windows 11; on Windows 10 the installer pulls it in if missing.
+
+Moving to another PC later: install Demod there the same way, then copy `%APPDATA%\com.demod.app\config.json` across if you want the same settings.
+
+> **Identifier is load-bearing.** Tauri derives the on-disk settings path from the bundle identifier (`com.demod.app`), so changing it would orphan the saved config and the whisper model. Keep `com.demod.app` stable.
+
+---
+
 ## Architecture
 
 ![Demod Architecture](docs/architecture.png)
@@ -73,7 +96,7 @@ Config/Data: %APPDATA%\com.demod.app\
 - **Two transcription engines**
   - **Local (whisper.cpp)**: fully on-device, zero network, no API key needed. Models: Small (466 MB, fast), Medium (1.5 GB, balanced), Large-v3 (2.9 GB, best quality).
   - **Cloud (Groq)**: near-real-time via `whisper-large-v3-turbo`. Free tier with your own key at [console.groq.com](https://console.groq.com).
-- **Animated overlay pill**: bottom-center of of screen, always on top:
+- **Animated overlay pill**: bottom-center of screen, always on top:
   - **Idle**: flat lozenge bar, hover expands, click opens settings
   - **Recording**: red pill with 5-bar live waveform tracking voice level
   - **Transcribing**: wave-loader ripple animation
@@ -111,13 +134,15 @@ Config/Data: %APPDATA%\com.demod.app\
 
 ---
 
-## Getting Started
+## Building from source (developers only)
+
+Skip this whole section if you only want to use Demod. See **Install** above.
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org) 18+
 - [Rust](https://rustup.rs) stable (MSVC toolchain: `rustup default stable-x86_64-pc-windows-msvc`)
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/): WebView2 runtime (ships with Windows 11; install on Win 10)
+- [Tauri prerequisites](https://tauri.app/start/prerequisites/): Visual Studio 2022 Build Tools with "Desktop development with C++" and a Windows 10/11 SDK; WebView2 runtime (ships with Windows 11; install on Win 10)
 
 ### Build & Run
 
@@ -130,7 +155,37 @@ npm run tauri build     # production exe + NSIS/MSI installer
 ```
 
 Release binary: `src-tauri/target/release/demod.exe`
-Installers: `src-tauri/target/release/bundle/`
+Installers: `src-tauri/target/release/bundle/` (`nsis/` and `msi/`). These are what go on the Releases page.
+
+Run `cargo check` / `cargo test` from inside `src-tauri/`: cargo reads `.cargo/config.toml` from the current directory, not from the manifest path.
+
+Always build via `npm run tauri build`, never a plain `cargo build --release`: a Tauri exe built outside the Tauri CLI embeds the dev-server URL and ships a dead WebView. See `docs/DEPLOY.md` for the deploy runbook.
+
+### No hard-coded paths (repo rule)
+
+The repository must build from **any checkout location on any machine**, so:
+
+- No absolute filesystem paths (`C:\Users\<name>\...`, `/home/...`) anywhere in code, build config, scripts, prompts, or docs. Use repo-relative paths, `CARGO_MANIFEST_DIR`, `%LOCALAPPDATA%` / `%APPDATA%`, or Tauri's path API.
+- `src-tauri/.cargo/config.toml` is committed and portable (`+crt-static` only, so the exe needs no VC redist). It must never grow a machine-specific entry.
+- Before committing, grep for your own user name or drive letter. A hit means the change is not portable yet.
+
+### Machine-specific toolchain workarounds
+
+Some machines have a damaged MSVC install (antivirus quarantining CRT import libs such as `msvcrt.lib` or SDK headers), or need a different linker. Fix that **on the machine, never in the repo**: put the workaround in your user-level `%USERPROFILE%\.cargo\config.toml`, which cargo merges with the repo config and which git never sees. Example:
+
+```toml
+# %USERPROFILE%\.cargo\config.toml  (this machine only)
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "linker=lld-link.exe",                      # if link.exe is broken
+  "-L", "native=<folder with your copied .lib files>",
+]
+
+[env]
+CL = "/I<folder with your copied SDK headers>"       # if a header is missing
+```
+
+Keep the copied `.lib` / `.h` files in a folder under your home directory (for example `%USERPROFILE%\.cargo\msvc-patch`), not in the repo. Delete the file once the toolchain is repaired.
 
 ### Download a Voice Model
 
@@ -190,7 +245,7 @@ Key settings:
 - **Windows only**: macOS/Linux not supported (Win32 APIs throughout: SendInput, WH_MOUSE_LL, WASAPI).
 - **Corporate proxy (Zscaler etc.)**: `api.groq.com` and `huggingface.co` may be blocked. Use local engine + download models manually via `archive.org` mirror.
 - **Large-v3 model**: only available on HuggingFace (no mirror). Download off-network if HF is blocked.
-- **VS SDK damage**: if AV quarantines MSVC CRT libs, use `stable-x86_64-pc-windows-msvc` + `lld-link` workaround in `.cargo/config.toml`.
+- **Damaged MSVC toolchain (AV quarantine)**: affects building only, never the installed app. Do not patch the repo; see *Machine-specific toolchain workarounds* above.
 
 ---
 
@@ -217,9 +272,11 @@ demod/
 │   │   ├── applog.rs       # Runtime event log (dmod.log)
 │   │   └── downloader.rs   # Streaming model download with progress
 │   ├── binaries/           # Bundled whisper.cpp sidecars + DLLs
-│   ├── .cargo/config.toml  # Linker / SDK workarounds
+│   ├── .cargo/config.toml  # Portable build flags only (+crt-static); no machine paths
 │   └── tauri.conf.json     # App config, bundle settings
 ├── docs/                   # Architecture diagrams, runbooks
+├── tasks/                  # Research notes, lessons, todo
+├── CLAUDE.md               # Repo rules for Claude Code (no hard-coded paths, etc.)
 ├── index.html              # Settings window shell
 └── progress.txt            # Dev log / session notes
 ```

@@ -47,7 +47,7 @@ be the moment the daily driver is overwritten.
 The old plan said "replace the exe." Windows will refuse: the running process holds
 the file handle. There is no quit-and-replace logic in the build script.
 
-Installed path confirmed to exist on this machine: `C:\Users\guruv\AppData\Local\Demod\demod.exe`.
+Installed path (NSIS per-user install): `%LOCALAPPDATA%\Demod\demod.exe`.
 
 ```powershell
 # PowerShell
@@ -65,7 +65,7 @@ taskkill /IM demod.exe /F
       ```
 - [ ] Copy the new binary in, then relaunch:
       ```powershell
-      Copy-Item "C:\Users\guruv\tools\demod\src-tauri\target\release\demod.exe" "$env:LOCALAPPDATA\Demod\demod.exe" -Force
+      Copy-Item ".\src-tauri\target\release\demod.exe" "$env:LOCALAPPDATA\Demod\demod.exe" -Force   # run from the repo root
       & "$env:LOCALAPPDATA\Demod\demod.exe"
       ```
 

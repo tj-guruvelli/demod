@@ -1,26 +1,10 @@
-# Workarounds (2026-07-19) for a damaged VS 2022 / Windows SDK install:
-# individual files were removed (suspected AV quarantine) from
-# VC\Tools\MSVC\14.42.34433\lib\x64 (msvcrt.lib, oldnames.lib, vcruntime.lib,
-# msvcprt.lib) and the 10.0.22621.0 SDK includes (specstrings_strict.h).
-#
-# 1. +crt-static links libcmt/libucrt/libvcruntime (all present) instead of
-#    the missing dynamic CRT import libs; also removes the VC redist runtime
-#    dependency from the shipped exe.
-# 2. ../../lib-patch holds oldnames.lib (copied from the same toolset's
-#    lib\x64\store, identical alias lib) for objects that carry a
-#    /DEFAULTLIB:OLDNAMES directive (vswhom-sys C++ code).
-# 3. The CL env var injects ../../sdk-patch/include so cl.exe finds
-#    specstrings_strict.h (copied from ScopeCppSDK).
-#
-# Proper fix: restore the quarantined files / repair VS + Windows SDK, then
-# this file can be deleted.
+# Portable build settings. No absolute paths belong in this file: the repo must
+# build from any checkout location on any machine. Machine-specific toolchain
+# workarounds (broken linker, AV-quarantined CRT libs, missing SDK headers) go
+# in the user-level %USERPROFILE%\.cargo\config.toml, never here. See README,
+# "Machine-specific toolchain workarounds".
 
 [target.x86_64-pc-windows-msvc]
-rustflags = [
-  "-C", "target-feature=+crt-static",
-  "-C", "linker=lld-link.exe",
-  "-L", "native=C:/Users/gunateja.guruvelli/Documents/demod/lib-patch",
-]
-
-[env]
-CL = "/IC:\\Users\\gunateja.guruvelli\\Documents\\demod\\sdk-patch\\include"
+# Static CRT: the shipped exe has no VC redistributable dependency, so the
+# installer is self-contained on a fresh Windows install.
+rustflags = ["-C", "target-feature=+crt-static"]
