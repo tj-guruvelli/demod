@@ -3,7 +3,7 @@
 > A local-first dictation app for Windows. Press a hotkey, talk, get text. Works anywhere on your desktop.
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](https://github.com/tj-guruvelli/demod)
-[![Version](https://img.shields.io/badge/version-0.1.0-purple)](https://github.com/tj-guruvelli/demod/releases)
+[![Version](https://img.shields.io/badge/version-0.1.1-purple)](https://github.com/tj-guruvelli/demod/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-orange)](https://tauri.app)
 
@@ -293,4 +293,4 @@ demod/
 
 ## Status
 
-`v0.1.0`. Personal project, actively developed. Windows 10/11 x64 only.
+`v0.1.1`. Personal project, actively developed. Windows 10/11 x64 only.
