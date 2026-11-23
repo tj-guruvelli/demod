@@ -1,11 +1,15 @@
 //! Model download with integrity verification.
 //!
-//! Bytes are streamed to `<dest>.part` while a SHA-256 is computed on the fly.
-//! Only when the digest matches the pinned value for that source is the part
-//! file renamed into place; otherwise it is deleted and the error names the
-//! source, so a tampered or corrupted file is never loaded by whisper.cpp.
+//! Bytes are streamed to a per-attempt `<dest>.<pid>-<nanos>.part` file while
+//! a SHA-256 is computed on the fly. After the stream ends the part file is
+//! hashed again from disk; the two digests must agree with each other and with
+//! the pinned value for that source before the file is renamed into place.
+//! Otherwise the part file is deleted and the error names the source, so a
+//! tampered, corrupted, or concurrently modified file is never loaded by
+//! whisper.cpp. The unique part name means two attempts can never share a
+//! temp file.
 
-use crate::models::{digest_matches, to_hex, ModelSource};
+use crate::models::{digest_matches, sha256_file, to_hex, ModelSource};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,14 +30,42 @@ pub enum SourceFailure {
     Corrupt(String),
 }
 
-/// Path of the temporary file a download is streamed into.
+/// Path of the temporary file one download attempt streams into. Unique per
+/// process and per call, so no two attempts (or two processes) ever write the
+/// same part file.
 pub fn part_path(dest: &Path) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let mut name = dest
         .file_name()
         .map(|n| n.to_os_string())
         .unwrap_or_default();
-    name.push(".part");
+    name.push(format!(".{}-{}.part", std::process::id(), nanos));
     dest.with_file_name(name)
+}
+
+/// Hash the finished part file from disk and require it to equal the digest
+/// computed while streaming. A difference means the bytes on disk are not the
+/// bytes that were received (concurrent writer, disk error), which is treated
+/// like a corrupt download.
+pub fn confirm_on_disk(part: &Path, streamed_sha256: &str, source: &ModelSource) -> Result<String, SourceFailure> {
+    let on_disk = match sha256_file(part) {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = std::fs::remove_file(part);
+            return Err(SourceFailure::Unreachable(e));
+        }
+    };
+    if !digest_matches(&on_disk, streamed_sha256) {
+        let _ = std::fs::remove_file(part);
+        return Err(SourceFailure::Corrupt(format!(
+            "Model file from {} changed on disk while downloading (streamed SHA-256 {}, on disk {}).              The download was discarded.",
+            source.label, streamed_sha256, on_disk
+        )));
+    }
+    Ok(on_disk)
 }
 
 /// Final step of a download: keep the part file only if its digest matches.
@@ -132,8 +164,9 @@ async fn download_from_source(
     }
     drop(file);
 
-    let actual = to_hex(&hasher.finalize());
-    finalize_download(&part, dest, &actual, source)
+    let streamed = to_hex(&hasher.finalize());
+    let on_disk = confirm_on_disk(&part, &streamed, source)?;
+    finalize_download(&part, dest, &on_disk, source)
 }
 
 /// Download a model trying each pinned source in order.
@@ -186,9 +219,42 @@ mod tests {
     }
 
     #[test]
-    fn part_path_appends_suffix_in_same_dir() {
-        let p = part_path(Path::new("C:/x/y/ggml-small.bin"));
-        assert_eq!(p, PathBuf::from("C:/x/y/ggml-small.bin.part"));
+    fn part_path_is_unique_and_stays_in_dest_dir() {
+        let dest = Path::new("C:/x/y/ggml-small.bin");
+        let a = part_path(dest);
+        let b = part_path(dest);
+        assert_eq!(a.parent(), dest.parent());
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("ggml-small.bin."), "{}", name);
+        assert!(name.ends_with(".part"), "{}", name);
+        assert!(name.contains(&std::process::id().to_string()), "{}", name);
+        assert_ne!(a, b, "two attempts must never share a part file");
+    }
+
+    #[test]
+    fn confirm_on_disk_accepts_matching_bytes() {
+        let d = temp_dir("disk-ok");
+        let part = d.join("m.part");
+        std::fs::write(&part, b"hello").unwrap();
+        let h = confirm_on_disk(&part, HELLO_SHA256, &source_with(HELLO_SHA256)).unwrap();
+        assert_eq!(h, HELLO_SHA256);
+        assert!(part.exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn confirm_on_disk_rejects_and_deletes_when_bytes_changed_after_streaming() {
+        let d = temp_dir("disk-bad");
+        let part = d.join("m.part");
+        // Streamed digest says "hello"; someone swapped the file afterwards.
+        std::fs::write(&part, b"swapped").unwrap();
+        let err = confirm_on_disk(&part, HELLO_SHA256, &source_with(HELLO_SHA256)).unwrap_err();
+        match err {
+            SourceFailure::Corrupt(msg) => assert!(msg.contains("changed on disk"), "{}", msg),
+            other => panic!("expected Corrupt, got {:?}", other),
+        }
+        assert!(!part.exists(), "swapped part file must be deleted");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
