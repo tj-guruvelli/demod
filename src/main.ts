@@ -920,6 +920,9 @@ modelList.addEventListener("click", async (e) => {
       await invoke("download_model", { modelSize: downloadId });
     } catch (err) {
       console.error("Download failed:", err);
+      // The Rust side already deleted any unverified file. Say so in the UI:
+      // a silent console line would look like a hung or ignored click.
+      showAppNotice(`Model download failed: ${String(err)}`);
     }
     activeDownloadId = null;
     downloadProgress.classList.add("hidden");

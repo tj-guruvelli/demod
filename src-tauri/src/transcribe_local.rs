@@ -117,21 +117,6 @@ pub fn model_filename(model_size: &str) -> String {
     format!("ggml-{}.bin", model_size)
 }
 
-pub fn model_download_url(model_size: &str) -> String {
-    // archive.org mirror for small/medium (HuggingFace blocked by some corporate proxies).
-    // large-v3 is only on HuggingFace; fall back to HF for it.
-    match model_size {
-        "small" | "medium" => format!(
-            "https://archive.org/download/whisper-models/ggml-{}.bin",
-            model_size
-        ),
-        _ => format!(
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin",
-            model_size
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,17 +126,5 @@ mod tests {
         assert_eq!(model_filename("small"), "ggml-small.bin");
         assert_eq!(model_filename("medium"), "ggml-medium.bin");
         assert_eq!(model_filename("large-v3"), "ggml-large-v3.bin");
-    }
-
-    #[test]
-    fn test_model_download_url() {
-        assert_eq!(
-            model_download_url("small"),
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
-        );
-        assert_eq!(
-            model_download_url("large-v3"),
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
-        );
     }
 }

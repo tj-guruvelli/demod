@@ -11,6 +11,7 @@ use tauri_plugin_shell::ShellExt;
 use demod_lib::applog;
 use demod_lib::audio;
 use demod_lib::downloader;
+use demod_lib::models;
 use demod_lib::paste::{self, PasteOutcome};
 use demod_lib::recorder::{Recorder, RecordingState, MIC_START_FAILURE_MESSAGE};
 use demod_lib::settings::Settings;
@@ -302,10 +303,12 @@ async fn download_model(
     state: State<'_, AppState>,
     model_size: String,
 ) -> Result<(), String> {
-    let url = transcribe_local::model_download_url(&model_size);
+    let sources = models::model_sources(&model_size);
     let model_file = transcribe_local::model_filename(&model_size);
     let dest = state.app_dir.join(&model_file);
-    downloader::download_model(app.clone(), &url, &dest).await?;
+    // Every source is pinned to a SHA-256; a mismatch deletes the file and
+    // surfaces here as an error the UI shows verbatim.
+    downloader::download_model(app.clone(), &sources, &dest).await?;
     // Model just became available — warm up the persistent server for it.
     respawn_whisper_server(&app, state.inner());
     Ok(())
